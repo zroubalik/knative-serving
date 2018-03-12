@@ -12,29 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: apps/v1beta1
-kind: Deployment
+apiVersion: v1
+kind: Service
 metadata:
+  labels:
+    app: ela-controller
+    prometheus: ela-controller
   name: ela-controller
   namespace: ela-system
 spec:
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: ela-controller
-    spec:
-      serviceAccountName: ela-controller
-      containers:
-      - name: ela-controller
-        image: ela-controller:latest
-        args:
-        - "-logtostderr=true"
-        - "-stderrthreshold=INFO"
-        - "-queueSidecarImage"
-        - ela-queue:latest
-        - "-autoscalerImage"
-        - ela-autoscaler:latest
-        ports:
-        - name: metrics
-          containerPort: 9090
+  ports:
+  - name: metrics
+    port: 9090
+    protocol: TCP
+    targetPort: 9090
+  selector:
+    app: ela-controller
