@@ -194,7 +194,7 @@ function tag_test_images() {
 function tag_built_image() {
   local remote_name=$1
   local local_name=$2
-  echo "oc tag -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:${remote_name} ${local_name}:latest"
+  oc tag -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:${remote_name} ${local_name}:latest
 }
 
 enable_admission_webhooks
