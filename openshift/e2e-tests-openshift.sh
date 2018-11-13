@@ -116,6 +116,10 @@ function create_test_resources_openshift() {
 
   echo ">> Creating imagestream tags for all test images"
   tag_test_images test/test_images
+
+  echo ">> Ensuring pods in test namespaces can access test images"
+  oc policy add-role-to-group system:image-puller system:serviceaccounts:${TEST_NAMESPACE} --namespace=${SERVING_NAMESPACE}
+  oc policy add-role-to-group system:image-puller system:serviceaccounts:knative-testing --namespace=${SERVING_NAMESPACE}
 }
 
 function resolve_resources(){
