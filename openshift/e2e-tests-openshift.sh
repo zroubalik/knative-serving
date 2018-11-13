@@ -8,7 +8,7 @@ export BUILD_DIR=`pwd`/../build
 export PATH=$BUILD_DIR/bin:$BUILD_DIR/google-cloud-sdk/bin:$PATH
 export K8S_CLUSTER_OVERRIDE=$(oc config current-context | awk -F'/' '{print $2}')
 export API_SERVER=$(oc config view --minify | grep server | awk -F'//' '{print $2}' | awk -F':' '{print $1}')
-export INTERNAL_REGISTRY=$(oc get svc -n default docker-registry -o "jsonpath={.spec.clusterIP}"):$(oc get svc -n default docker-registry -o "jsonpath={.spec.ports[0].port}")
+export INTERNAL_REGISTRY="docker-registry.default.svc:5000"
 export USER=$KUBE_SSH_USER #satisfy e2e_flags.go#initializeFlags()
 export OPENSHIFT_REGISTRY=registry.svc.ci.openshift.org
 
