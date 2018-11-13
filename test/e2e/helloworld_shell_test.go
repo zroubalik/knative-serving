@@ -75,8 +75,8 @@ func TestHelloWorldFromShell(t *testing.T) {
 		t.Fatalf("Failed to read file %s: %v", appYaml, err)
 	}
 
-	content := strings.Replace(string(yamlBytes), yamlImagePlaceholder, imagePath, -1)
-	content = strings.Replace(string(content), namespacePlaceholder, test.ServingNamespace, -1)
+	content := strings.Replace(string(yamlBytes), namespacePlaceholder, test.ServingNamespace, -1)
+	content = strings.Replace(string(content), yamlImagePlaceholder, imagePath, -1)
 
 	logger.Infof("New manifest contents are:\n%s", content)
 
