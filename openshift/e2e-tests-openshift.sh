@@ -8,6 +8,7 @@ export BUILD_DIR=`pwd`/../build
 export PATH=$BUILD_DIR/bin:$BUILD_DIR/google-cloud-sdk/bin:$PATH
 export K8S_CLUSTER_OVERRIDE=$(oc config current-context | awk -F'/' '{print $2}')
 export API_SERVER=$(oc config view --minify | grep server | awk -F'//' '{print $2}' | awk -F':' '{print $1}')
+export INTERNAL_REGISTRY="docker-registry.default.svc:5000"
 export USER=$KUBE_SSH_USER #satisfy e2e_flags.go#initializeFlags()
 export OPENSHIFT_REGISTRY=registry.svc.ci.openshift.org
 
@@ -72,6 +73,10 @@ function install_istio(){
 
 function install_knative(){
   header "Installing Knative"
+
+  # Create knative-serving namespace, needed for imagestreams
+  oc create namespace $SERVING_NAMESPACE
+
   # Grant the necessary privileges to the service accounts Knative will use:
   oc adm policy add-scc-to-user anyuid -z build-controller -n knative-build
   oc adm policy add-scc-to-user anyuid -z controller -n knative-serving
@@ -108,6 +113,13 @@ function create_test_resources_openshift() {
   echo ">> Creating test resources for OpenShift (test/config/)"
   resolve_resources test/config/ $TEST_NAMESPACE tests-resolved.yaml
   oc apply -f tests-resolved.yaml
+
+  echo ">> Creating imagestream tags for all test images"
+  tag_test_images test/test_images
+
+  echo ">> Ensuring pods in test namespaces can access test images"
+  oc policy add-role-to-group system:image-puller system:serviceaccounts:${TEST_NAMESPACE} --namespace=${SERVING_NAMESPACE}
+  oc policy add-role-to-group system:image-puller system:serviceaccounts:knative-testing --namespace=${SERVING_NAMESPACE}
 }
 
 function resolve_resources(){
@@ -117,52 +129,19 @@ function resolve_resources(){
     echo "---" >> $resolved_file_name
     #first prefix all test images with "test-", then replace all image names with proper repository
     sed -e 's/\(.* image: \)\(github.com\)\(.*\/\)\(test\/\)\(.*\)/\1\2 \3\4test-\5/' $yaml | \
-    sed -e 's/\(.* image: \)\(github.com\)\(.*\/\)\(.*\)/\1 '"$OPENSHIFT_REGISTRY"'\/'"$OPENSHIFT_BUILD_NAMESPACE"'\/stable:\4/' \
-        -e 's/\(.* queueSidecarImage: \)\(github.com\)\(.*\/\)\(.*\)/\1 '"$OPENSHIFT_REGISTRY"'\/'"$OPENSHIFT_BUILD_NAMESPACE"'\/stable:\4/' >> $resolved_file_name
+    sed -e 's/\(.* image: \)\(github.com\)\(.*\/\)\(.*\)/\1 '"$INTERNAL_REGISTRY"'\/'"$SERVING_NAMESPACE"'\/\4/' \
+        -e 's/\(.* queueSidecarImage: \)\(github.com\)\(.*\/\)\(.*\)/\1 '"$INTERNAL_REGISTRY"'\/'"$SERVING_NAMESPACE"'\/\4/' >> $resolved_file_name
+  done
+
+  echo ">> Creating imagestream tags for images referenced in yaml files"
+  IMAGE_NAMES=$(cat $resolved_file_name | grep -i "image:" | grep "$INTERNAL_REGISTRY" | awk '{print $2}' | awk -F '/' '{print $3}')
+  for name in $IMAGE_NAMES; do
+    tag_built_image ${name} ${name}
   done
 }
 
 function enable_docker_schema2(){
-  cat > config.yaml <<EOF
-  version: 0.1
-  log:
-    level: debug
-  http:
-    addr: :5000
-  storage:
-    cache:
-      blobdescriptor: inmemory
-    filesystem:
-      rootdirectory: /registry
-    delete:
-      enabled: true
-  auth:
-    openshift:
-      realm: openshift
-  middleware:
-    registry:
-      - name: openshift
-    repository:
-      - name: openshift
-        options:
-          acceptschema2: true
-          pullthrough: true
-          enforcequota: false
-          projectcachettl: 1m
-          blobrepositorycachettl: 10m
-    storage:
-      - name: openshift
-  openshift:
-    version: 1.0
-    metrics:
-      enabled: false
-      secret: <secret>
-EOF
-  oc project default
-  oc create configmap registry-config --from-file=./config.yaml
-  oc set volume dc/docker-registry --add --type=configmap --configmap-name=registry-config -m /etc/docker/registry/
-  oc set env dc/docker-registry REGISTRY_CONFIGURATION_PATH=/etc/docker/registry/config.yaml
-  oc project $TEST_NAMESPACE
+  oc set env -n default dc/docker-registry REGISTRY_MIDDLEWARE_REPOSITORY_OPENSHIFT_ACCEPTSCHEMA2=true
 }
 
 function create_test_namespace(){
@@ -178,7 +157,7 @@ function run_e2e_tests(){
     -v -tags=e2e -count=1 -timeout=20m \
     ./test/conformance ./test/e2e \
     --kubeconfig $KUBECONFIG \
-    --dockerrepo ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable \
+    --dockerrepo ${INTERNAL_REGISTRY}/${SERVING_NAMESPACE} \
     ${options} || fail_test
 }
 
@@ -208,6 +187,26 @@ function teardown() {
   delete_test_resources_openshift
   delete_serving_openshift
   delete_istio_openshift
+}
+
+function tag_test_images() {
+  local dir=$1
+  image_dirs="$(find ${dir} -mindepth 1 -maxdepth 1 -type d)"
+
+  for image_dir in ${image_dirs}; do
+    name=$(basename ${image_dir})
+    tag_built_image test-${name} ${name}
+  done
+
+  # TestContainerErrorMsg also needs an invalidhelloworld imagestream
+  # to exist but NOT have a `latest` tag
+  oc tag -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:test-helloworld invalidhelloworld:not_latest
+}
+
+function tag_built_image() {
+  local remote_name=$1
+  local local_name=$2
+  oc tag -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:${remote_name} ${local_name}:latest
 }
 
 enable_admission_webhooks
