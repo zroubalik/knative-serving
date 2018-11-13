@@ -197,6 +197,10 @@ function tag_test_images() {
     name=$(basename ${image_dir})
     tag_built_image test-${name} ${name}
   done
+
+  # TestContainerErrorMsg also needs an invalidhelloworld imagestream
+  # to exist but NOT have a `latest` tag
+  oc tag -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:test-helloworld invalidhelloworld:not_latest
 }
 
 function tag_built_image() {
