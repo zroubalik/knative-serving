@@ -78,8 +78,6 @@ func TestHelloWorldFromShell(t *testing.T) {
 	content := strings.Replace(string(yamlBytes), namespacePlaceholder, test.ServingNamespace, -1)
 	content = strings.Replace(string(content), yamlImagePlaceholder, imagePath, -1)
 
-	logger.Infof("New manifest contents are:\n%s", content)
-
 	if _, err = newYaml.WriteString(content); err != nil {
 		t.Fatalf("Failed to write new manifest: %v", err)
 	}
@@ -119,12 +117,6 @@ func TestHelloWorldFromShell(t *testing.T) {
 	outputString := ""
 	timeout = servingTimeout
 	for outputString != helloWorldExpectedOutput && timeout >= 0 {
-		var describeOutput []byte
-		if describeOutput, err = exec.Command("kubectl", "describe", "revision", "-n", test.ServingNamespace).CombinedOutput(); err != nil {
-			t.Fatalf("Error running kubectl: %v", strings.TrimSpace(string(describeOutput)))
-		}
-		logger.Infof("Revisions:\n%s", describeOutput)
-
 		var cmd *exec.Cmd
 		if test.ServingFlags.ResolvableDomain {
 			cmd = exec.Command("curl", serviceHost)
