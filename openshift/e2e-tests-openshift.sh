@@ -73,6 +73,10 @@ function install_istio(){
 
 function install_knative(){
   header "Installing Knative"
+
+  # Create knative-serving namespace, needed for imagestreams
+  oc create namespace $SERVING_NAMESPACE
+
   # Grant the necessary privileges to the service accounts Knative will use:
   oc adm policy add-scc-to-user anyuid -z build-controller -n knative-build
   oc adm policy add-scc-to-user anyuid -z controller -n knative-serving
