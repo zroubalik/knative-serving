@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/knative/serving/pkg/apis/autoscaling"
@@ -343,47 +344,6 @@ func TestContainerConcurrencyValidation(t *testing.T) {
 	}
 }
 
-func TestServingStateValidation(t *testing.T) {
-	tests := []struct {
-		name string
-		ss   RevisionServingStateType
-		want *apis.FieldError
-	}{{
-		name: "active",
-		ss:   "Active",
-		want: nil,
-	}, {
-		name: "reserve",
-		ss:   "Reserve",
-		want: nil,
-	}, {
-		name: "retired",
-		ss:   "Retired",
-		want: nil,
-	}, {
-		name: "empty",
-		ss:   "",
-		want: nil,
-	}, {
-		name: "bogus",
-		ss:   "bogus",
-		want: apis.ErrInvalidValue("bogus", apis.CurrentField),
-	}, {
-		name: "balderdash",
-		ss:   "balderdash",
-		want: apis.ErrInvalidValue("balderdash", apis.CurrentField),
-	}}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := test.ss.Validate()
-			if diff := cmp.Diff(test.want.Error(), got.Error()); diff != "" {
-				t.Errorf("Validate (-want, +got) = %v", diff)
-			}
-		})
-	}
-}
-
 func TestRevisionSpecValidation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -398,15 +358,6 @@ func TestRevisionSpecValidation(t *testing.T) {
 			ConcurrencyModel: "Multi",
 		},
 		want: nil,
-	}, {
-		name: "has bad serving state",
-		rs: &RevisionSpec{
-			Container: corev1.Container{
-				Image: "helloworld",
-			},
-			ServingState: "blah",
-		},
-		want: apis.ErrInvalidValue("blah", "servingState"),
 	}, {
 		name: "has bad build ref",
 		rs: &RevisionSpec{
@@ -434,6 +385,28 @@ func TestRevisionSpecValidation(t *testing.T) {
 			},
 		},
 		want: apis.ErrDisallowedFields("container.name"),
+	}, {
+		name: "exceed max timeout",
+		rs: &RevisionSpec{
+			Container: corev1.Container{
+				Image: "helloworld",
+			},
+			TimeoutSeconds: &metav1.Duration{
+				Duration: 600 * time.Second,
+			},
+		},
+		want: apis.ErrOutOfBoundsValue("10m0s", "0s", "1m0s", "timeoutSeconds"),
+	}, {
+		name: "negative timeout",
+		rs: &RevisionSpec{
+			Container: corev1.Container{
+				Image: "helloworld",
+			},
+			TimeoutSeconds: &metav1.Duration{
+				Duration: -30 * time.Second,
+			},
+		},
+		want: apis.ErrOutOfBoundsValue("-30s", "0s", "1m0s", "timeoutSeconds"),
 	}}
 
 	for _, test := range tests {
@@ -599,7 +572,6 @@ func TestImmutableFields(t *testing.T) {
 		name: "good (no change)",
 		new: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Active",
 				Container: corev1.Container{
 					Image: "helloworld",
 				},
@@ -608,28 +580,6 @@ func TestImmutableFields(t *testing.T) {
 		},
 		old: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Active",
-				Container: corev1.Container{
-					Image: "helloworld",
-				},
-				ConcurrencyModel: "Multi",
-			},
-		},
-		want: nil,
-	}, {
-		name: "good (serving state change)",
-		new: &Revision{
-			Spec: RevisionSpec{
-				ServingState: "Active",
-				Container: corev1.Container{
-					Image: "helloworld",
-				},
-				ConcurrencyModel: "Multi",
-			},
-		},
-		old: &Revision{
-			Spec: RevisionSpec{
-				ServingState: "Reserve",
 				Container: corev1.Container{
 					Image: "helloworld",
 				},
@@ -641,7 +591,6 @@ func TestImmutableFields(t *testing.T) {
 		name: "bad (type mismatch)",
 		new: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Active",
 				Container: corev1.Container{
 					Image: "helloworld",
 				},
@@ -654,7 +603,6 @@ func TestImmutableFields(t *testing.T) {
 		name: "bad (container image change)",
 		new: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Active",
 				Container: corev1.Container{
 					Image: "helloworld",
 				},
@@ -663,7 +611,6 @@ func TestImmutableFields(t *testing.T) {
 		},
 		old: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Active",
 				Container: corev1.Container{
 					Image: "busybox",
 				},
@@ -682,7 +629,6 @@ func TestImmutableFields(t *testing.T) {
 		name: "bad (concurrency model change)",
 		new: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Active",
 				Container: corev1.Container{
 					Image: "helloworld",
 				},
@@ -691,7 +637,6 @@ func TestImmutableFields(t *testing.T) {
 		},
 		old: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Active",
 				Container: corev1.Container{
 					Image: "helloworld",
 				},
@@ -710,7 +655,6 @@ func TestImmutableFields(t *testing.T) {
 		name: "bad (multiple changes)",
 		new: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Active",
 				Container: corev1.Container{
 					Image: "helloworld",
 				},
@@ -719,7 +663,6 @@ func TestImmutableFields(t *testing.T) {
 		},
 		old: &Revision{
 			Spec: RevisionSpec{
-				ServingState: "Reserve",
 				Container: corev1.Container{
 					Image: "busybox",
 				},
