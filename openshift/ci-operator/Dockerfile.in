@@ -1,5 +1,5 @@
 # Do not edit! This file was generated via Makefile
 FROM gcr.io/distroless/base:latest
 
-ADD singlethreaded /usr/bin/singlethreaded
-ENTRYPOINT ["/usr/bin/singlethreaded"]
+ADD ${bin} /usr/bin/${bin}
+ENTRYPOINT ["/usr/bin/${bin}"]
