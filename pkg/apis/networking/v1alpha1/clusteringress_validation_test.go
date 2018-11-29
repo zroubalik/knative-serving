@@ -41,7 +41,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName:      "revision-000",
 								ServiceNamespace: "default",
 								ServicePort:      intstr.FromInt(8080),
@@ -110,7 +110,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName:      "revision-000",
 								ServiceNamespace: "default",
 								ServicePort:      intstr.FromInt(8080),
@@ -162,7 +162,8 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{},
+							ClusterIngressBackend: ClusterIngressBackend{},
+							Percent:               100,
 						}},
 					}},
 				},
@@ -177,7 +178,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceNamespace: "default",
 								ServicePort:      intstr.FromInt(8080),
 							},
@@ -195,7 +196,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName: "service-name",
 								ServicePort: intstr.FromInt(8080),
 							},
@@ -213,7 +214,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName:      "service-name",
 								ServiceNamespace: "default",
 							},
@@ -231,7 +232,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName:      "revision-000",
 								ServiceNamespace: "default",
 								ServicePort:      intstr.FromInt(8080),
@@ -254,7 +255,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName:      "revision-000",
 								ServiceNamespace: "default",
 								ServicePort:      intstr.FromInt(8080),
@@ -277,7 +278,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName:      "revision-000",
 								ServiceNamespace: "default",
 								ServicePort:      intstr.FromInt(8080),
@@ -299,7 +300,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName:      "revision-000",
 								ServiceNamespace: "default",
 								ServicePort:      intstr.FromInt(8080),
@@ -321,7 +322,7 @@ func TestIngressSpecValidation(t *testing.T) {
 				HTTP: &HTTPClusterIngressRuleValue{
 					Paths: []HTTPClusterIngressPath{{
 						Splits: []ClusterIngressBackendSplit{{
-							Backend: &ClusterIngressBackend{
+							ClusterIngressBackend: ClusterIngressBackend{
 								ServiceName:      "revision-000",
 								ServiceNamespace: "default",
 								ServicePort:      intstr.FromInt(8080),
@@ -361,7 +362,7 @@ func TestClusterIngressValidation(t *testing.T) {
 					HTTP: &HTTPClusterIngressRuleValue{
 						Paths: []HTTPClusterIngressPath{{
 							Splits: []ClusterIngressBackendSplit{{
-								Backend: &ClusterIngressBackend{
+								ClusterIngressBackend: ClusterIngressBackend{
 									ServiceName:      "revision-000",
 									ServiceNamespace: "default",
 									ServicePort:      intstr.FromInt(8080),
@@ -381,7 +382,7 @@ func TestClusterIngressValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got := test.ci.Validate()
-			if diff := cmp.Diff(test.want, got); diff != "" {
+			if diff := cmp.Diff(test.want.Error(), got.Error()); diff != "" {
 				t.Errorf("Validate (-want, +got) = %v", diff)
 			}
 		})

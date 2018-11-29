@@ -18,15 +18,17 @@ package v1alpha1
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/knative/pkg/apis"
+	networkingv1alpha1 "github.com/knative/serving/pkg/apis/networking/v1alpha1"
 )
 
 func (rt *Revision) Validate() *apis.FieldError {
@@ -42,8 +44,7 @@ func (rs *RevisionSpec) Validate() *apis.FieldError {
 	if equality.Semantic.DeepEqual(rs, &RevisionSpec{}) {
 		return apis.ErrMissingField(apis.CurrentField)
 	}
-	errs := rs.ServingState.Validate().ViaField("servingState").
-		Also(validateContainer(rs.Container).ViaField("container")).
+	errs := validateContainer(rs.Container).ViaField("container").
 		Also(validateBuildRef(rs.BuildRef).ViaField("buildRef"))
 
 	if err := rs.ConcurrencyModel.Validate().ViaField("concurrencyModel"); err != nil {
@@ -51,15 +52,29 @@ func (rs *RevisionSpec) Validate() *apis.FieldError {
 	} else if err := ValidateContainerConcurrency(rs.ContainerConcurrency, rs.ConcurrencyModel); err != nil {
 		errs = errs.Also(err)
 	}
+
+	if err := validateTimeoutSeconds(rs.TimeoutSeconds); err != nil {
+		errs = errs.Also(err)
+	}
 	return errs
 }
 
-func (ss RevisionServingStateType) Validate() *apis.FieldError {
+func validateTimeoutSeconds(timeoutSeconds *metav1.Duration) *apis.FieldError {
+	if timeoutSeconds != nil {
+		if timeoutSeconds.Duration > networkingv1alpha1.DefaultTimeout ||
+			timeoutSeconds.Duration < 0*time.Second {
+			return apis.ErrOutOfBoundsValue(timeoutSeconds.Duration.String(), "0s", networkingv1alpha1.DefaultTimeout.String(), "timeoutSeconds")
+		}
+	}
+	return nil
+}
+
+func (ss DeprecatedRevisionServingStateType) Validate() *apis.FieldError {
 	switch ss {
-	case RevisionServingStateType(""),
-		RevisionServingStateRetired,
-		RevisionServingStateReserve,
-		RevisionServingStateActive:
+	case DeprecatedRevisionServingStateType(""),
+		DeprecatedRevisionServingStateRetired,
+		DeprecatedRevisionServingStateReserve,
+		DeprecatedRevisionServingStateActive:
 		return nil
 	default:
 		return apis.ErrInvalidValue(string(ss), apis.CurrentField)
@@ -191,9 +206,7 @@ func (current *Revision) CheckImmutableFields(og apis.Immutable) *apis.FieldErro
 		return &apis.FieldError{Message: "The provided original was not a Revision"}
 	}
 
-	// The autoscaler is allowed to change ServingState, but consider the rest.
-	ignoreServingState := cmpopts.IgnoreFields(RevisionSpec{}, "ServingState")
-	if diff := cmp.Diff(original.Spec, current.Spec, ignoreServingState); diff != "" {
+	if diff := cmp.Diff(original.Spec, current.Spec); diff != "" {
 		return &apis.FieldError{
 			Message: "Immutable fields changed (-old +new)",
 			Paths:   []string{"spec"},

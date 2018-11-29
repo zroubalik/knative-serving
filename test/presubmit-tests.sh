@@ -44,10 +44,6 @@ function unit_tests() {
   report_go_test ./...
 }
 
-function integration_tests() {
-  local options=""
-  (( EMIT_METRICS )) && options="--emit-metrics"
-  ./test/e2e-tests.sh ${options}
-}
+# We use the default integration test runner.
 
 main $@

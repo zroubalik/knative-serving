@@ -101,7 +101,7 @@ func TestActivationHandler(t *testing.T) {
 			attempts:  "123",
 			reporterCalls: []reporterCall{
 				{
-					Op:         "ReportResponseCount",
+					Op:         "ReportRequestCount",
 					Namespace:  "real-namespace",
 					Revision:   "real-name",
 					Service:    "service-real-name",
@@ -128,6 +128,16 @@ func TestActivationHandler(t *testing.T) {
 			wantCode:  http.StatusOK,
 			wantErr:   nil,
 			reporterCalls: []reporterCall{
+				{
+					Op:         "ReportRequestCount",
+					Namespace:  "real-namespace",
+					Revision:   "real-name",
+					Service:    "service-real-name",
+					Config:     "config-real-name",
+					StatusCode: http.StatusOK,
+					Attempts:   1,
+					Value:      1.0,
+				},
 				{
 					Op:         "ReportResponseTime",
 					Namespace:  "real-namespace",
@@ -156,6 +166,16 @@ func TestActivationHandler(t *testing.T) {
 			wantErr:   errors.New("request error"),
 			reporterCalls: []reporterCall{
 				{
+					Op:         "ReportRequestCount",
+					Namespace:  "real-namespace",
+					Revision:   "real-name",
+					Service:    "service-real-name",
+					Config:     "config-real-name",
+					StatusCode: http.StatusBadGateway,
+					Attempts:   1,
+					Value:      1.0,
+				},
+				{
 					Op:         "ReportResponseTime",
 					Namespace:  "real-namespace",
 					Revision:   "real-name",
@@ -174,6 +194,16 @@ func TestActivationHandler(t *testing.T) {
 			wantErr:   nil,
 			attempts:  "hi there",
 			reporterCalls: []reporterCall{
+				{
+					Op:         "ReportRequestCount",
+					Namespace:  "real-namespace",
+					Revision:   "real-name",
+					Service:    "service-real-name",
+					Config:     "config-real-name",
+					StatusCode: http.StatusOK,
+					Attempts:   1,
+					Value:      1.0,
+				},
 				{
 					Op:         "ReportResponseTime",
 					Namespace:  "real-namespace",
@@ -197,7 +227,7 @@ func TestActivationHandler(t *testing.T) {
 					return resp, err
 				}
 				if e.attempts != "" {
-					resp.Header.Add(activator.ResponseCountHTTPHeader, e.attempts)
+					resp.Header.Add(activator.RequestCountHTTPHeader, e.attempts)
 				}
 				return resp, err
 			})
@@ -219,6 +249,10 @@ func TestActivationHandler(t *testing.T) {
 
 			if resp.Code != e.wantCode {
 				t.Errorf("Unexpected response status. Want %d, got %d", e.wantCode, resp.Code)
+			}
+
+			if resp.Header().Get(activator.RequestCountHTTPHeader) != "" {
+				t.Errorf("Expected the %q header to be filtered", activator.RequestCountHTTPHeader)
 			}
 
 			gotBody, _ := ioutil.ReadAll(resp.Body)
@@ -252,13 +286,9 @@ type fakeReporter struct {
 	calls []reporterCall
 }
 
-func (f *fakeReporter) ReportRequest(ns, service, config, rev, servingState string, v float64) error {
-	return nil
-}
-
-func (f *fakeReporter) ReportResponseCount(ns, service, config, rev string, responseCode, numTries int, v float64) error {
+func (f *fakeReporter) ReportRequestCount(ns, service, config, rev string, responseCode, numTries int, v float64) error {
 	f.calls = append(f.calls, reporterCall{
-		Op:         "ReportResponseCount",
+		Op:         "ReportRequestCount",
 		Namespace:  ns,
 		Service:    service,
 		Config:     config,

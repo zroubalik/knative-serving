@@ -134,7 +134,7 @@ func NewController(
 			transport: http.DefaultTransport,
 		},
 	}
-	impl := controller.NewImpl(c, c.Logger, "Revisions")
+	impl := controller.NewImpl(c, c.Logger, "Revisions", reconciler.MustNewStatsReporter("Revisions", c.Logger))
 
 	// Set up an event handler for when the resource types of interest change
 	c.Logger.Info("Setting up event handlers")
@@ -145,8 +145,9 @@ func NewController(
 	})
 
 	endpointsInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.EnqueueEndpointsRevision(impl),
-		UpdateFunc: controller.PassNew(c.EnqueueEndpointsRevision(impl)),
+		AddFunc:    impl.EnqueueLabelOfNamespaceScopedResource("", serving.RevisionLabelKey),
+		UpdateFunc: controller.PassNew(impl.EnqueueLabelOfNamespaceScopedResource("", serving.RevisionLabelKey)),
+		DeleteFunc: impl.EnqueueLabelOfNamespaceScopedResource("", serving.RevisionLabelKey),
 	})
 
 	deploymentInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
@@ -154,6 +155,7 @@ func NewController(
 		Handler: cache.ResourceEventHandlerFuncs{
 			AddFunc:    impl.EnqueueControllerOf,
 			UpdateFunc: controller.PassNew(impl.EnqueueControllerOf),
+			DeleteFunc: impl.EnqueueControllerOf,
 		},
 	})
 
@@ -162,6 +164,7 @@ func NewController(
 		Handler: cache.ResourceEventHandlerFuncs{
 			AddFunc:    impl.EnqueueControllerOf,
 			UpdateFunc: controller.PassNew(impl.EnqueueControllerOf),
+			DeleteFunc: impl.EnqueueControllerOf,
 		},
 	})
 
@@ -176,6 +179,7 @@ func NewController(
 		Handler: cache.ResourceEventHandlerFuncs{
 			AddFunc:    impl.EnqueueControllerOf,
 			UpdateFunc: controller.PassNew(impl.EnqueueControllerOf),
+			DeleteFunc: impl.EnqueueControllerOf,
 		},
 	})
 
@@ -206,6 +210,7 @@ func newDuckInformerFactory(t tracker.Interface, delegate duck.InformerFactory) 
 			EventHandler: cache.ResourceEventHandlerFuncs{
 				AddFunc:    t.OnChanged,
 				UpdateFunc: controller.PassNew(t.OnChanged),
+				DeleteFunc: t.OnChanged,
 			},
 		},
 	}
@@ -246,12 +251,11 @@ func (c *Reconciler) Reconcile(ctx context.Context, key string) error {
 		// This is important because the copy we loaded from the informer's
 		// cache may be stale and we don't want to overwrite a prior update
 		// to status with this stale state.
-	} else {
-		// logger.Infof("Updating Status (-old, +new): %v", cmp.Diff(original, rev))
-		if _, err := c.updateStatus(rev); err != nil {
-			logger.Warn("Failed to update revision status", zap.Error(err))
-			return err
-		}
+	} else if _, err := c.updateStatus(rev); err != nil {
+		logger.Warn("Failed to update revision status", zap.Error(err))
+		c.Recorder.Eventf(rev, corev1.EventTypeWarning, "UpdateFailed",
+			"Failed to update status for Revision %q: %v", rev.Name, err)
+		return err
 	}
 	return err
 }
@@ -259,6 +263,13 @@ func (c *Reconciler) Reconcile(ctx context.Context, key string) error {
 func (c *Reconciler) reconcileBuild(ctx context.Context, rev *v1alpha1.Revision) error {
 	buildRef := rev.BuildRef()
 	if buildRef == nil {
+		rev.Status.PropagateBuildStatus(duckv1alpha1.KResourceStatus{
+			Conditions: []duckv1alpha1.Condition{{
+				Type:   duckv1alpha1.ConditionSucceeded,
+				Status: corev1.ConditionTrue,
+				Reason: "NoBuild",
+			}},
+		})
 		return nil
 	}
 
@@ -268,7 +279,6 @@ func (c *Reconciler) reconcileBuild(ctx context.Context, rev *v1alpha1.Revision)
 		logger.Errorf("Error tracking build '%+v' for Revision %q: %+v", buildRef, rev.Name, err)
 		return err
 	}
-	rev.Status.InitializeBuildCondition()
 
 	gvr, _ := meta.UnsafeGuessKindToResource(buildRef.GroupVersionKind())
 	_, lister, err := c.buildInformerFactory.Get(gvr)
@@ -386,29 +396,18 @@ func (c *Reconciler) updateRevisionLoggingURL(
 		"${REVISION_UID}", uid, -1)
 }
 
-func (c *Reconciler) EnqueueEndpointsRevision(impl *controller.Impl) func(obj interface{}) {
-	return func(obj interface{}) {
-		endpoints := obj.(*corev1.Endpoints)
-		// Use the label on the Endpoints (from Service) to determine whether it is
-		// owned by a Revision, and if so queue that Revision.
-		if revisionName, ok := endpoints.Labels[serving.RevisionLabelKey]; ok {
-			impl.EnqueueKey(endpoints.Namespace + "/" + revisionName)
-		}
-	}
-}
-
-func (c *Reconciler) updateStatus(rev *v1alpha1.Revision) (*v1alpha1.Revision, error) {
-	newRev, err := c.revisionLister.Revisions(rev.Namespace).Get(rev.Name)
+func (c *Reconciler) updateStatus(desired *v1alpha1.Revision) (*v1alpha1.Revision, error) {
+	rev, err := c.revisionLister.Revisions(desired.Namespace).Get(desired.Name)
 	if err != nil {
 		return nil, err
 	}
-	// Check if there is anything to update.
-	if !reflect.DeepEqual(newRev.Status, rev.Status) {
-		newRev.Status = rev.Status
-
-		// TODO: for CRD there's no updatestatus, so use normal update
-		return c.ServingClientSet.ServingV1alpha1().Revisions(rev.Namespace).Update(newRev)
-		//	return prClient.UpdateStatus(newRev)
+	// If there's nothing to update, just return.
+	if reflect.DeepEqual(rev.Status, desired.Status) {
+		return rev, nil
 	}
-	return rev, nil
+	// Don't modify the informers copy
+	existing := rev.DeepCopy()
+	existing.Status = desired.Status
+	// TODO: for CRD there's no updatestatus, so use normal update
+	return c.ServingClientSet.ServingV1alpha1().Revisions(desired.Namespace).Update(existing)
 }

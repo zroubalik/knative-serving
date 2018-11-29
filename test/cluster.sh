@@ -18,19 +18,60 @@
 
 source $(dirname $0)/../vendor/github.com/knative/test-infra/scripts/e2e-tests.sh
 
-# Location of istio for the test cluster
-readonly ISTIO_YAML=./third_party/istio-1.0.2/istio-lean.yaml
+# Current YAMLs used to install Knative Serving.
+INSTALL_ISTIO_CRD_YAML=""
+INSTALL_ISTIO_YAML=""
+INSTALL_RELEASE_YAML=""
 
-function create_istio() {
-  echo ">> Bringing up Istio"
-  kubectl apply -f ${ISTIO_YAML}
+# Create all manifests required to install Knative Serving.
+# This will build everything from the current source.
+# All generated YAMLs will be available and pointed by the corresponding
+# environment variables as set in /hack/generate-yamls.sh.
+function build_knative_from_source() {
+  local YAML_LIST="$(mktemp)"
+  # Generate manifests, capture environment variables pointing to the YAML files.
+  local FULL_OUTPUT="$( \
+      source $(dirname $0)/../hack/generate-yamls.sh ${REPO_ROOT_DIR} ${YAML_LIST} ; \
+      set | grep _YAML=/)"
+  local LOG_OUTPUT="$(echo "${FULL_OUTPUT}" | grep -v _YAML=/)"
+  local ENV_OUTPUT="$(echo "${FULL_OUTPUT}" | grep '^[_0-9A-Z]\+_YAML=/')"
+  [[ -z "${LOG_OUTPUT}" || -z "${ENV_OUTPUT}" ]] && fail_test "Error generating manifests"
+  # Only import the environment variables pointing to the YAML files.
+  echo "${LOG_OUTPUT}"
+  echo -e "Generated manifests:\n${ENV_OUTPUT}"
+  eval "${ENV_OUTPUT}"
 }
 
-function create_serving() {
+# Installs Knative Serving in the current cluster, and waits for it to be ready.
+# If no parameters are passed, installs the current source-based build.
+# Parameters: $1 - Istio CRD YAML file
+#             $2 - Istio YAML file
+#             $3 - Knative Serving YAML file
+function install_knative_serving() {
+  INSTALL_ISTIO_CRD_YAML=$1
+  INSTALL_ISTIO_YAML=$2
+  INSTALL_RELEASE_YAML=$3
+  if [[ -z "${INSTALL_ISTIO_CRD_YAML}" ]]; then
+    build_knative_from_source
+    INSTALL_ISTIO_CRD_YAML="${ISTIO_CRD_YAML}"
+    INSTALL_ISTIO_YAML="${ISTIO_YAML}"
+    # TODO(#2122): Use RELEASE_YAML once we have monitoring e2e.
+    INSTALL_RELEASE_YAML="${RELEASE_NO_MON_YAML}"
+  fi
+  echo ">> Installing Knative serving"
+  echo "Istio CRD YAML: ${INSTALL_ISTIO_CRD_YAML}"
+  echo "Istio YAML: ${INSTALL_ISTIO_YAML}"
+  echo "Knative YAML: ${INSTALL_RELEASE_YAML}"
+  echo ">> Bringing up Istio"
+  kubectl apply -f "${INSTALL_ISTIO_CRD_YAML}" || return 1
+  kubectl apply -f "${INSTALL_ISTIO_YAML}" || return 1
+
   echo ">> Bringing up Serving"
-  # We still need this for at least one e2e test
-  kubectl apply -f third_party/config/build/release.yaml
-  ko apply -f config/
+  kubectl apply -f "${INSTALL_RELEASE_YAML}" || return 1
+
+  echo ">> Adding more activator pods."
+  kubectl scale deploy --replicas=2 -n knative-serving activator || return 1
+
   # Due to the lack of Status in Istio, we have to ignore failures in initial requests.
   #
   # However, since network configurations may reach different ingress pods at slightly
@@ -42,69 +83,42 @@ function create_serving() {
   # We should revisit this when Istio API exposes a Status that we can rely on.
   # TODO(tcnghia): remove this when https://github.com/istio/istio/issues/882 is fixed.
   echo ">> Patching Istio"
-  kubectl patch hpa -n istio-system knative-ingressgateway --patch '{"spec": {"maxReplicas": 1}}'
-}
+  kubectl patch hpa -n istio-system knative-ingressgateway --patch '{"spec": {"maxReplicas": 1}}' || return 1
 
-function create_test_resources() {
   echo ">> Creating test resources (test/config/)"
-  ko apply -f test/config/
+  ko apply -f test/config/ || return 1
+
+  wait_until_pods_running knative-serving || return 1
+  wait_until_pods_running istio-system || return 1
+  wait_until_service_has_external_ip istio-system knative-ingressgateway
 }
 
-function create_monitoring() {
-  echo ">> Bringing up Monitoring"
-  kubectl apply -R -f config/monitoring/100-common \
-    -f config/monitoring/150-elasticsearch \
-    -f third_party/config/monitoring/common \
-    -f third_party/config/monitoring/elasticsearch \
-    -f config/monitoring/200-common \
-    -f config/monitoring/200-common/100-istio.yaml
-}
-
-function create_everything() {
-  export KO_DOCKER_REPO=${DOCKER_REPO_OVERRIDE}
-  create_istio
-  create_serving
-  create_test_resources
-  # TODO(#2122): Re-enable once we have monitoring e2e.
-  # create_monitoring
-}
-
-function delete_istio() {
-  echo ">> Bringing down Istio"
-  kubectl delete --ignore-not-found=true -f ${ISTIO_YAML}
-  kubectl delete clusterrolebinding cluster-admin-binding
-}
-
-function delete_serving() {
-  echo ">> Bringing down Serving"
-  ko delete --ignore-not-found=true -f config/
-  kubectl delete --ignore-not-found=true -f third_party/config/build/release.yaml
-}
-
-function delete_test_resources() {
+# Uninstalls Knative Serving from the current cluster.
+function uninstall_knative_serving() {
+  if [[ -z "${INSTALL_RELEASE_YAML}" ]]; then
+    echo "install_knative_serving() was not called, nothing to uninstall"
+    return 0
+  fi
+  echo ">> Uninstalling Knative serving"
+  echo "Istio YAML: ${INSTALL_ISTIO_YAML}"
+  echo "Knative YAML: ${INSTALL_RELEASE_YAML}"
   echo ">> Removing test resources (test/config/)"
-  ko delete --ignore-not-found=true -f test/config/
+  ko delete --ignore-not-found=true -f test/config/ || return 1
+
+  echo ">> Bringing down Serving"
+  ko delete --ignore-not-found=true -f "${INSTALL_RELEASE_YAML}" || return 1
+
+  echo ">> Bringing down Istio"
+  kubectl delete --ignore-not-found=true -f "${INSTALL_ISTIO_YAML}" || return 1
+  kubectl delete --ignore-not-found=true clusterrolebinding cluster-admin-binding
 }
 
-function delete_monitoring() {
-  echo ">> Bringing down Monitoring"
-  kubectl delete --ignore-not-found=true -f config/monitoring/100-common \
-    -f config/monitoring/150-elasticsearch \
-    -f third_party/config/monitoring/common \
-    -f third_party/config/monitoring/elasticsearch \
-    -f config/monitoring/200-common
-}
-
-function delete_everything() {
-  # TODO(#2122): Re-enable once we have monitoring e2e.
-  # delete_monitoring
-  delete_test_resources
-  delete_serving
-  delete_istio
-}
-
-function wait_until_cluster_up() {
-  wait_until_pods_running knative-serving || fail_test "Knative Serving is not up"
-  wait_until_pods_running istio-system || fail_test "Istio system is not up"
-  wait_until_service_has_external_ip istio-system knative-ingressgateway || fail_test "Ingress has no external IP"
+# Publish all e2e test images in ${REPO_ROOT_DIR}/test/test_images/
+function publish_test_images() {
+  echo ">> Publishing test images"
+  kubectl create namespace serving-tests
+  local image_dirs="$(find ${REPO_ROOT_DIR}/test/test_images -mindepth 1 -maxdepth 1 -type d)"
+  for image_dir in ${image_dirs}; do
+    ko publish -P "github.com/knative/serving/test/test_images/$(basename ${image_dir})" || return 1
+  done
 }

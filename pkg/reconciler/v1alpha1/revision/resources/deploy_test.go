@@ -18,21 +18,21 @@ package resources
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
-
 	"github.com/knative/pkg/logging"
 	"github.com/knative/serving/pkg/apis/serving"
 	"github.com/knative/serving/pkg/apis/serving/v1alpha1"
 	"github.com/knative/serving/pkg/autoscaler"
 	"github.com/knative/serving/pkg/queue"
 	"github.com/knative/serving/pkg/reconciler/v1alpha1/revision/config"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 var (
@@ -63,6 +63,9 @@ func TestMakePodSpec(t *testing.T) {
 				Container: corev1.Container{
 					Image: "busybox",
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -71,7 +74,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:         UserContainerName,
+				Name:         userContainerName,
 				Image:        "busybox",
 				Resources:    userResources,
 				Ports:        userPorts,
@@ -95,7 +98,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=1"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -111,6 +113,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "1",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -140,6 +148,9 @@ func TestMakePodSpec(t *testing.T) {
 				Container: corev1.Container{
 					Image: "busybox",
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 			Status: v1alpha1.RevisionStatus{
 				ImageDigest: "busybox@sha256:deadbeef",
@@ -151,7 +162,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:         UserContainerName,
+				Name:         userContainerName,
 				Image:        "busybox@sha256:deadbeef",
 				Resources:    userResources,
 				Ports:        userPorts,
@@ -175,7 +186,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=1"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -191,6 +201,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "1",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -227,6 +243,9 @@ func TestMakePodSpec(t *testing.T) {
 				Container: corev1.Container{
 					Image: "busybox",
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -235,7 +254,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:         UserContainerName,
+				Name:         userContainerName,
 				Image:        "busybox",
 				Resources:    userResources,
 				Ports:        userPorts,
@@ -259,7 +278,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=1"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -275,6 +293,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "1",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -312,6 +336,9 @@ func TestMakePodSpec(t *testing.T) {
 						},
 					},
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -320,7 +347,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:  UserContainerName,
+				Name:  userContainerName,
 				Image: "busybox",
 				ReadinessProbe: &corev1.Probe{
 					Handler: corev1.Handler{
@@ -352,7 +379,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=0"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -368,6 +394,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "0",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -404,6 +436,9 @@ func TestMakePodSpec(t *testing.T) {
 						},
 					},
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -412,7 +447,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:  UserContainerName,
+				Name:  userContainerName,
 				Image: "busybox",
 				ReadinessProbe: &corev1.Probe{
 					Handler: corev1.Handler{
@@ -443,7 +478,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=0"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -459,6 +493,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "0",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -495,6 +535,9 @@ func TestMakePodSpec(t *testing.T) {
 						},
 					},
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -503,7 +546,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:  UserContainerName,
+				Name:  userContainerName,
 				Image: "busybox",
 				ReadinessProbe: &corev1.Probe{
 					Handler: corev1.Handler{
@@ -536,7 +579,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=0"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -552,6 +594,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "0",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -586,6 +634,9 @@ func TestMakePodSpec(t *testing.T) {
 						},
 					},
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -594,7 +645,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:  UserContainerName,
+				Name:  userContainerName,
 				Image: "busybox",
 				LivenessProbe: &corev1.Probe{
 					Handler: corev1.Handler{
@@ -625,7 +676,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=0"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -641,6 +691,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "0",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -670,6 +726,9 @@ func TestMakePodSpec(t *testing.T) {
 				Container: corev1.Container{
 					Image: "busybox",
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -681,7 +740,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:         UserContainerName,
+				Name:         userContainerName,
 				Image:        "busybox",
 				Resources:    userResources,
 				Ports:        userPorts,
@@ -705,7 +764,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=1"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -721,6 +779,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "1",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -742,7 +806,7 @@ func TestMakePodSpec(t *testing.T) {
 					Value: "--no-supervisor -q",
 				}, {
 					Name:  "SERVING_CONTAINER_NAME",
-					Value: UserContainerName,
+					Value: userContainerName,
 				}, {
 					Name: "SERVING_CONFIGURATION",
 					// No owner reference
@@ -762,7 +826,16 @@ func TestMakePodSpec(t *testing.T) {
 				}},
 				VolumeMounts: fluentdVolumeMounts,
 			}},
-			Volumes: []corev1.Volume{varLogVolume, fluentdConfigMapVolume},
+			Volumes: []corev1.Volume{varLogVolume, {
+				Name: fluentdConfigMapVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "bar-fluentd",
+						},
+					},
+				},
+			}},
 		},
 	}, {
 		name: "complex pod spec",
@@ -786,6 +859,9 @@ func TestMakePodSpec(t *testing.T) {
 						Value: "blah",
 					}},
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -794,7 +870,7 @@ func TestMakePodSpec(t *testing.T) {
 		cc: &config.Controller{},
 		want: &corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name:    UserContainerName,
+				Name:    userContainerName,
 				Image:   "busybox",
 				Command: []string{"/bin/bash"},
 				Args:    []string{"-c", "echo Hello world"},
@@ -828,7 +904,6 @@ func TestMakePodSpec(t *testing.T) {
 				Lifecycle:      queueLifecycle,
 				ReadinessProbe: queueReadinessProbe,
 				// These changed based on the Revision and configs passed in.
-				Args: []string{"-containerConcurrency=1"},
 				Env: []corev1.EnvVar{{
 					Name:  "SERVING_NAMESPACE",
 					Value: "foo", // matches namespace
@@ -844,6 +919,12 @@ func TestMakePodSpec(t *testing.T) {
 				}, {
 					Name:  "SERVING_AUTOSCALER_PORT",
 					Value: "8080",
+				}, {
+					Name:  "CONTAINER_CONCURRENCY",
+					Value: "1",
+				}, {
+					Name:  "REVISION_TIMEOUT_SECONDS",
+					Value: "45",
 				}, {
 					Name: "SERVING_POD",
 					ValueFrom: &corev1.EnvVarSource{
@@ -893,6 +974,9 @@ func TestMakeDeployment(t *testing.T) {
 				ContainerConcurrency: 1,
 				Container: corev1.Container{
 					Image: "busybox",
+				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
 				},
 			},
 		},
@@ -965,6 +1049,9 @@ func TestMakeDeployment(t *testing.T) {
 				Container: corev1.Container{
 					Image: "busybox",
 				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
+				},
 			},
 		},
 		lc: &logging.Config{},
@@ -1028,6 +1115,9 @@ func TestMakeDeployment(t *testing.T) {
 				ContainerConcurrency: 0,
 				Container: corev1.Container{
 					Image: "busybox",
+				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
 				},
 			},
 		},
@@ -1098,6 +1188,9 @@ func TestMakeDeployment(t *testing.T) {
 				ContainerConcurrency: 0,
 				Container: corev1.Container{
 					Image: "busybox",
+				},
+				TimeoutSeconds: &metav1.Duration{
+					Duration: 45 * time.Second,
 				},
 			},
 		},

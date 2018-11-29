@@ -18,8 +18,10 @@ package v1alpha1
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestServiceDefaulting(t *testing.T) {
@@ -30,8 +32,21 @@ func TestServiceDefaulting(t *testing.T) {
 	}{{
 		name: "empty",
 		in:   &Service{},
-		// If neither RunLatest or Pinned is provided, then we do nothing.
+		// Do nothing when no type is provided
 		want: &Service{},
+	}, {
+		name: "manual",
+		in: &Service{
+			Spec: ServiceSpec{
+				Manual: &ManualType{},
+			},
+		},
+		// Manual does not take a configuration so do nothing
+		want: &Service{
+			Spec: ServiceSpec{
+				Manual: &ManualType{},
+			},
+		},
 	}, {
 		name: "run latest",
 		in: &Service{
@@ -44,7 +59,11 @@ func TestServiceDefaulting(t *testing.T) {
 				RunLatest: &RunLatestType{
 					Configuration: ConfigurationSpec{
 						RevisionTemplate: RevisionTemplateSpec{
-							Spec: RevisionSpec{},
+							Spec: RevisionSpec{
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 60 * time.Second,
+								},
+							},
 						},
 					},
 				},
@@ -59,6 +78,9 @@ func TestServiceDefaulting(t *testing.T) {
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 60 * time.Second,
+								},
 							},
 						},
 					},
@@ -72,6 +94,9 @@ func TestServiceDefaulting(t *testing.T) {
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 60 * time.Second,
+								},
 							},
 						},
 					},
@@ -90,7 +115,11 @@ func TestServiceDefaulting(t *testing.T) {
 				Pinned: &PinnedType{
 					Configuration: ConfigurationSpec{
 						RevisionTemplate: RevisionTemplateSpec{
-							Spec: RevisionSpec{},
+							Spec: RevisionSpec{
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 60 * time.Second,
+								},
+							},
 						},
 					},
 				},
@@ -105,6 +134,9 @@ func TestServiceDefaulting(t *testing.T) {
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 99 * time.Second,
+								},
 							},
 						},
 					},
@@ -118,6 +150,65 @@ func TestServiceDefaulting(t *testing.T) {
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 99 * time.Second,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, {
+		name: "release",
+		in: &Service{
+			Spec: ServiceSpec{
+				Release: &ReleaseType{},
+			},
+		},
+		want: &Service{
+			Spec: ServiceSpec{
+				Release: &ReleaseType{
+					Configuration: ConfigurationSpec{
+						RevisionTemplate: RevisionTemplateSpec{
+							Spec: RevisionSpec{
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 60 * time.Second,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, {
+		name: "release - no overwrite",
+		in: &Service{
+			Spec: ServiceSpec{
+				Release: &ReleaseType{
+					Configuration: ConfigurationSpec{
+						RevisionTemplate: RevisionTemplateSpec{
+							Spec: RevisionSpec{
+								ContainerConcurrency: 1,
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 99 * time.Second,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		want: &Service{
+			Spec: ServiceSpec{
+				Release: &ReleaseType{
+					Configuration: ConfigurationSpec{
+						RevisionTemplate: RevisionTemplateSpec{
+							Spec: RevisionSpec{
+								ContainerConcurrency: 1,
+								TimeoutSeconds: &metav1.Duration{
+									Duration: 99 * time.Second,
+								},
 							},
 						},
 					},
