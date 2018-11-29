@@ -11,7 +11,9 @@ test-install:
 	go build -o $(GOPATH)/bin/test-controller ./test/controller
 	go install ./test/test_images/autoscale ./test/test_images/envvars \
 	           ./test/test_images/helloworld ./test/test_images/httpproxy \
-	           ./test/test_images/pizzaplanetv1 ./test/test_images/pizzaplanetv2
+	           ./test/test_images/pizzaplanetv1 ./test/test_images/pizzaplanetv2 \
+	           ./test/test_images/singlethreaded ./test/test_images/timeout \
+	           ./test/test_images/observed-concurrency
 .PHONY: test-install
 
 test-e2e:
