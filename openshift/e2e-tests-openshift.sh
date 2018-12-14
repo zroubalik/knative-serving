@@ -158,7 +158,7 @@ function run_e2e_tests(){
     ./test/conformance ./test/e2e \
     --kubeconfig $KUBECONFIG \
     --dockerrepo ${INTERNAL_REGISTRY}/${SERVING_NAMESPACE} \
-    ${options} || fail_test
+    ${options} || return 1
 }
 
 function delete_istio_openshift(){
@@ -211,8 +211,6 @@ function tag_built_image() {
 
 enable_admission_webhooks
 
-teardown
-
 create_test_namespace
 
 install_istio
@@ -223,4 +221,14 @@ install_knative
 
 create_test_resources_openshift
 
-run_e2e_tests
+failed=0
+
+run_e2e_tests || failed=1
+
+(( failed )) && dump_cluster_state
+
+teardown
+
+(( failed )) && exit 1
+
+success
