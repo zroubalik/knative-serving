@@ -4,15 +4,15 @@ source $(dirname $0)/../test/cluster.sh
 
 set -x
 
-export BUILD_DIR=`pwd`/../build
-export PATH=$BUILD_DIR/bin:$BUILD_DIR/google-cloud-sdk/bin:$PATH
-export K8S_CLUSTER_OVERRIDE=$(oc config current-context | awk -F'/' '{print $2}')
-export API_SERVER=$(oc config view --minify | grep server | awk -F'//' '{print $2}' | awk -F':' '{print $1}')
-export INTERNAL_REGISTRY="docker-registry.default.svc:5000"
-export USER=$KUBE_SSH_USER #satisfy e2e_flags.go#initializeFlags()
-export OPENSHIFT_REGISTRY=registry.svc.ci.openshift.org
-
-readonly ISTIO_URL='https://storage.googleapis.com/knative-releases/serving/latest/istio.yaml'
+readonly K8S_CLUSTER_OVERRIDE=$(oc config current-context | awk -F'/' '{print $2}')
+readonly API_SERVER=$(oc config view --minify | grep server | awk -F'//' '{print $2}' | awk -F':' '{print $1}')
+readonly INTERNAL_REGISTRY="docker-registry.default.svc:5000"
+readonly USER=$KUBE_SSH_USER #satisfy e2e_flags.go#initializeFlags()
+readonly OPENSHIFT_REGISTRY="${OPENSHIFT_REGISTRY:-"registry.svc.ci.openshift.org"}"
+readonly SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-"~/.ssh/google_compute_engine"}"
+readonly INSECURE="${INSECURE:-"false"}"
+readonly ISTIO_YAML=$(find third_party -mindepth 1 -maxdepth 1 -type d -name "istio-*")/istio.yaml
+readonly ISTIO_CRD_YAML=$(find third_party -mindepth 1 -maxdepth 1 -type d -name "istio-*")/istio-crds.yaml
 readonly TEST_NAMESPACE=serving-tests
 readonly SERVING_NAMESPACE=knative-serving
 
@@ -25,7 +25,7 @@ function enable_admission_webhooks(){
   echo "API_SERVER=$API_SERVER"
   echo "KUBE_SSH_USER=$KUBE_SSH_USER"
   chmod 600 ~/.ssh/google_compute_engine
-  echo "$API_SERVER ansible_ssh_private_key_file=~/.ssh/google_compute_engine" > inventory.ini
+  echo "$API_SERVER ansible_ssh_private_key_file=${SSH_PRIVATE_KEY}" > inventory.ini
   ansible-playbook ${REPO_ROOT_DIR}/openshift/admission-webhooks.yaml -i inventory.ini -u $KUBE_SSH_USER
   rm inventory.ini
 }
@@ -59,10 +59,12 @@ function install_istio(){
   oc adm policy add-scc-to-user anyuid -z istio-mixer-service-account -n istio-system
   oc adm policy add-scc-to-user anyuid -z istio-pilot-service-account -n istio-system
   oc adm policy add-scc-to-user anyuid -z istio-sidecar-injector-service-account -n istio-system
+  oc adm policy add-scc-to-user anyuid -z cluster-local-gateway-service-account -n istio-system
   oc adm policy add-cluster-role-to-user cluster-admin -z istio-galley-service-account -n istio-system
   
   # Deploy the latest Istio release
-  oc apply -f $ISTIO_URL
+  oc apply -f $ISTIO_CRD_YAML
+  oc apply -f $ISTIO_YAML
 
   # Ensure the istio-sidecar-injector pod runs as privileged
   oc get cm istio-sidecar-injector -n istio-system -o yaml | sed -e 's/securityContext:/securityContext:\\n      privileged: true/' | oc replace -f -
@@ -100,6 +102,7 @@ function create_serving_and_build(){
   echo ">> Bringing up Build and Serving"
   oc apply -f third_party/config/build/release.yaml
   
+  > serving-resolved.yaml
   resolve_resources config/ $SERVING_NAMESPACE serving-resolved.yaml
   
   # Remove nodePort spec as the ports do not fall into the range allowed by OpenShift
@@ -111,15 +114,18 @@ function create_serving_and_build(){
 
 function create_test_resources_openshift() {
   echo ">> Creating test resources for OpenShift (test/config/)"
-  resolve_resources test/config/ $TEST_NAMESPACE tests-resolved.yaml
-  oc apply -f tests-resolved.yaml
 
-  echo ">> Creating imagestream tags for all test images"
-  tag_test_images test/test_images
+  > tests-resolved.yaml
+  resolve_resources test/config/ $TEST_NAMESPACE tests-resolved.yaml
+  
+  oc apply -f tests-resolved.yaml
 
   echo ">> Ensuring pods in test namespaces can access test images"
   oc policy add-role-to-group system:image-puller system:serviceaccounts:${TEST_NAMESPACE} --namespace=${SERVING_NAMESPACE}
   oc policy add-role-to-group system:image-puller system:serviceaccounts:knative-testing --namespace=${SERVING_NAMESPACE}
+
+  echo ">> Creating imagestream tags for all test images"
+  tag_test_images test/test_images
 }
 
 function resolve_resources(){
@@ -132,6 +138,8 @@ function resolve_resources(){
     sed -e 's/\(.* image: \)\(github.com\)\(.*\/\)\(.*\)/\1 '"$INTERNAL_REGISTRY"'\/'"$SERVING_NAMESPACE"'\/knative-serving-\4/' \
         -e 's/\(.* queueSidecarImage: \)\(github.com\)\(.*\/\)\(.*\)/\1 '"$INTERNAL_REGISTRY"'\/'"$SERVING_NAMESPACE"'\/knative-serving-\4/' >> $resolved_file_name
   done
+
+  oc policy add-role-to-group system:image-puller system:serviceaccounts:${SERVING_NAMESPACE} --namespace=${OPENSHIFT_BUILD_NAMESPACE}
 
   echo ">> Creating imagestream tags for images referenced in yaml files"
   IMAGE_NAMES=$(cat $resolved_file_name | grep -i "image:" | grep "$INTERNAL_REGISTRY" | awk '{print $2}' | awk -F '/' '{print $3}')
@@ -163,7 +171,8 @@ function run_e2e_tests(){
 
 function delete_istio_openshift(){
   echo ">> Bringing down Istio"
-  oc delete --ignore-not-found=true -f ${ISTIO_URL}
+  oc delete --ignore-not-found=true -f $ISTIO_YAML
+  oc delete --ignore-not-found=true -f $ISTIO_CRD_YAML
 }
 
 function delete_serving_openshift() {
@@ -200,13 +209,13 @@ function tag_test_images() {
 
   # TestContainerErrorMsg also needs an invalidhelloworld imagestream
   # to exist but NOT have a `latest` tag
-  oc tag -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:knative-serving-test-helloworld invalidhelloworld:not_latest
+  oc tag --insecure=${INSECURE} -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:knative-serving-test-helloworld invalidhelloworld:not_latest
 }
 
 function tag_built_image() {
   local remote_name=$1
   local local_name=$2
-  oc tag -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:${remote_name} ${local_name}:latest
+  oc tag --insecure=${INSECURE} -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:${remote_name} ${local_name}:latest
 }
 
 enable_admission_webhooks
