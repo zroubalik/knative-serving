@@ -162,7 +162,7 @@ function run_e2e_tests(){
   options=""
   (( EMIT_METRICS )) && options="-emitmetrics"
   report_go_test \
-    -v -tags=e2e -count=1 -timeout=30m \
+    -v -tags=e2e -count=1 -timeout=45m \
     ./test/e2e ./test/conformance \
     --kubeconfig $KUBECONFIG \
     --dockerrepo ${INTERNAL_REGISTRY}/${SERVING_NAMESPACE} \
