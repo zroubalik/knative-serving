@@ -131,7 +131,7 @@ function create_test_resources_openshift() {
 function resolve_resources(){
   local dir=$1
   local resolved_file_name=$3
-  for yaml in $(find $dir -name "*.yaml"); do
+  for yaml in $(find $dir -name "*.yaml" -mindepth 1 -maxdepth 1); do
     echo "---" >> $resolved_file_name
     #first prefix all test images with "test-", then replace all image names with proper repository
     sed -e 's/\(.* image: \)\(github.com\)\(.*\/\)\(test\/\)\(.*\)/\1\2 \3\4test-\5/' $yaml | \
