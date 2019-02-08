@@ -31,6 +31,10 @@ import (
 	"github.com/knative/serving/pkg/apis/serving/v1alpha1"
 )
 
+// Default for user containers in e2e tests. This value is lower than the general
+// Knative's default so as to run more effectively in CI with limited resources.
+const defaultRequestCPU = "100m"
+
 // ResourceNames holds names of various resources.
 type ResourceNames struct {
 	Config        string
@@ -114,6 +118,14 @@ func ConfigurationSpec(imagePath string, options *Options) *v1alpha1.Configurati
 
 	if options.EnvVars != nil {
 		spec.RevisionTemplate.Spec.Container.Env = options.EnvVars
+	}
+
+	if options.ContainerResources.Limits == nil && options.ContainerResources.Requests == nil {
+		spec.RevisionTemplate.Spec.Container.Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse(defaultRequestCPU),
+			},
+		}
 	}
 
 	return spec
