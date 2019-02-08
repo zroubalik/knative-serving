@@ -146,6 +146,9 @@ func TestScaleTo10(t *testing.T) {
 }
 
 func TestScaleTo50(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
 	//add test case specific name to its own logger
 	logger := logging.GetContextLogger("TestScaleTo50")
 
