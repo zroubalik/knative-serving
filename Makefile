@@ -24,3 +24,8 @@ generate-dockerfiles:
 	./openshift/ci-operator/generate-dockerfiles.sh openshift/ci-operator/knative-images $(CORE_IMAGES)
 	./openshift/ci-operator/generate-dockerfiles.sh openshift/ci-operator/knative-test-images $(TEST_IMAGES)
 .PHONY: generate-dockerfiles
+
+# Generates a release.yaml given a specific target (default: origin-v4.0) and a specific branch.
+generate-release:
+	./openshift/generate-release.sh $(BRANCH) $(TARGET) > release.yaml
+.PHONY: generate-release
