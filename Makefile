@@ -27,5 +27,5 @@ generate-dockerfiles:
 
 # Generates a release.yaml given a specific target (default: origin-v4.0) and a specific branch.
 generate-release:
-	./openshift/generate-release.sh $(BRANCH) $(TARGET) > release.yaml
+	./openshift/ci-operator/generate-release.sh $(BRANCH) $(TARGET) > release.yaml
 .PHONY: generate-release
