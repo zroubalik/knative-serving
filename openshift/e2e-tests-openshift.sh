@@ -1,15 +1,16 @@
-#!/bin/sh 
+#!/usr/bin/env bash
 
 source $(dirname $0)/../test/cluster.sh
 
 set -x
 
+readonly ENABLE_ADMISSION_WEBHOOKS="${ENABLE_ADMISSION_WEBHOOKS:-"true"}"
 readonly K8S_CLUSTER_OVERRIDE=$(oc config current-context | awk -F'/' '{print $2}')
 readonly API_SERVER=$(oc config view --minify | grep server | awk -F'//' '{print $2}' | awk -F':' '{print $1}')
-readonly INTERNAL_REGISTRY="docker-registry.default.svc:5000"
+readonly INTERNAL_REGISTRY="${INTERNAL_REGISTRY:-"docker-registry.default.svc:5000"}"
 readonly USER=$KUBE_SSH_USER #satisfy e2e_flags.go#initializeFlags()
 readonly OPENSHIFT_REGISTRY="${OPENSHIFT_REGISTRY:-"registry.svc.ci.openshift.org"}"
-readonly SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-"~/.ssh/google_compute_engine"}"
+readonly SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-"$HOME/.ssh/google_compute_engine"}"
 readonly INSECURE="${INSECURE:-"false"}"
 readonly ISTIO_YAML=$(find third_party -mindepth 1 -maxdepth 1 -type d -name "istio-*")/istio.yaml
 readonly ISTIO_CRD_YAML=$(find third_party -mindepth 1 -maxdepth 1 -type d -name "istio-*")/istio-crds.yaml
@@ -24,7 +25,7 @@ function enable_admission_webhooks(){
   disable_strict_host_checking
   echo "API_SERVER=$API_SERVER"
   echo "KUBE_SSH_USER=$KUBE_SSH_USER"
-  chmod 600 ~/.ssh/google_compute_engine
+  chmod 600 $SSH_PRIVATE_KEY
   echo "$API_SERVER ansible_ssh_private_key_file=${SSH_PRIVATE_KEY}" > inventory.ini
   ansible-playbook ${REPO_ROOT_DIR}/openshift/admission-webhooks.yaml -i inventory.ini -u $KUBE_SSH_USER
   rm inventory.ini
@@ -43,6 +44,72 @@ Host *
    StrictHostKeyChecking no
    UserKnownHostsFile=/dev/null
 EOF
+}
+
+function scale_up_workers(){
+  local cluster_api_ns="openshift-machine-api"
+  # Get the name of the first machineset that has at least 1 replica
+  local machineset=$(oc get machineset -n ${cluster_api_ns} -o custom-columns="name:{.metadata.name},replicas:{.spec.replicas}" -l machine.openshift.io/cluster-api-machine-type=worker | grep " 1" | head -n 1 | awk '{print $1}')
+  # Bump the number of replicas to 6 (+ 1 + 1 == 8 workers)
+  oc patch machineset -n ${cluster_api_ns} ${machineset} -p '{"spec":{"replicas":6}}' --type=merge
+  wait_until_machineset_scales_up ${cluster_api_ns} ${machineset} 6
+}
+
+# Waits until the machineset in the given namespaces scales up to the
+# desired number of replicas
+# Parameters: $1 - namespace
+#             $2 - machineset name
+#             $3 - desired number of replicas
+function wait_until_machineset_scales_up() {
+  echo -n "Waiting until machineset $2 in namespace $1 scales up to $3 replicas"
+  for i in {1..150}; do  # timeout after 15 minutes
+    local available=$(oc get machineset -n $1 $2 -o jsonpath="{.status.availableReplicas}")
+    if [[ ${available} -eq $3 ]]; then
+      echo -e "\nMachineSet $2 in namespace $1 successfully scaled up to $3 replicas"
+      return 0
+    fi
+    echo -n "."
+    sleep 6
+  done
+  echo - "\n\nError: timeout waiting for machineset $2 in namespace $1 to scale up to $3 replicas"
+  return 1
+}
+
+# Waits until the given hostname resolves via DNS
+# Parameters: $1 - hostname
+function wait_until_hostname_resolves() {
+  echo -n "Waiting until hostname $1 resolves via DNS"
+  for i in {1..150}; do  # timeout after 15 minutes
+    local output="$(host -t a $1 | grep 'has address')"
+    if [[ -n "${output}" ]]; then
+      echo -e "\n${output}"
+      return 0
+    fi
+    echo -n "."
+    sleep 6
+  done
+  echo -e "\n\nERROR: timeout waiting for hostname $1 to resolve via DNS"
+  return 1
+}
+
+# Waits until the configmap in the given namespace contains the
+# desired content.
+# Parameters: $1 - namespace
+#             $2 - configmap name
+#             $3 - desired content
+function wait_until_configmap_contains() {
+  echo -n "Waiting until configmap $1/$2 contains '$3'"
+  for _ in {1..180}; do  # timeout after 3 minutes
+    local output="$(oc -n "$1" get cm "$2" -oyaml | grep "$3")"
+    if [[ -n "${output}" ]]; then
+      echo -e "\n${output}"
+      return 0
+    fi
+    echo -n "."
+    sleep 1
+  done
+  echo -e "\n\nERROR: timeout waiting for configmap $1/$2 to contain '$3'"
+  return 1
 }
 
 function install_istio(){
@@ -88,13 +155,37 @@ function install_knative(){
 
   # Deploy Knative Serving from the current source repository. This will also install Knative Build.
   create_serving_and_build
+  enable_knative_interaction_with_registry
 
   echo ">> Patching Istio"
-  oc patch hpa -n istio-system knative-ingressgateway --patch '{"spec": {"maxReplicas": 1}}'
+  for gateway in istio-ingressgateway knative-ingressgateway cluster-local-gateway istio-egressgateway; do
+    if kubectl get svc -n istio-system ${gateway} > /dev/null 2>&1 ; then
+      kubectl patch hpa -n istio-system ${gateway} --patch '{"spec": {"maxReplicas": 1}}'
+      kubectl set resources deploy -n istio-system ${gateway} \
+        -c=istio-proxy --requests=cpu=50m 2> /dev/null
+    fi
+  done
+
+  # There are reports of Envoy failing (503) when istio-pilot is overloaded.
+  # We generously add more pilot instances here to verify if we can reduce flakes.
+  if kubectl get hpa -n istio-system istio-pilot 2>/dev/null; then
+    # If HPA exists, update it.  Since patching will return non-zero if no change
+    # is made, we don't return on failure here.
+    kubectl patch hpa -n istio-system istio-pilot \
+      --patch '{"spec": {"minReplicas": 3, "maxReplicas": 10, "targetCPUUtilizationPercentage": 60}}' \
+      `# Ignore error messages to avoid causing red herrings in the tests` \
+      2>/dev/null
+  else
+    # Some versions of Istio doesn't provide an HPA for pilot.
+    kubectl autoscale -n istio-system deploy istio-pilot --min=3 --max=10 --cpu-percent=60 || return 1
+  fi
 
   wait_until_pods_running knative-build || return 1
   wait_until_pods_running knative-serving || return 1
   wait_until_service_has_external_ip istio-system knative-ingressgateway || fail_test "Ingress has no external IP"
+
+  wait_until_hostname_resolves $(kubectl get svc -n istio-system knative-ingressgateway -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
+
   header "Knative Installed successfully"
 }
 
@@ -107,9 +198,18 @@ function create_serving_and_build(){
   
   # Remove nodePort spec as the ports do not fall into the range allowed by OpenShift
   sed '/nodePort/d' serving-resolved.yaml | oc apply -f -
+}
 
-  echo ">>> Setting SSL_CERT_FILE for Knative Serving Controller"
-  oc set env -n knative-serving deployment/controller SSL_CERT_FILE=/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+function enable_knative_interaction_with_registry() {
+  local configmap_name=config-service-ca
+  local cert_name=service-ca.crt
+  local mount_path=/var/run/secrets/kubernetes.io/servicecerts
+
+  oc -n $SERVING_NAMESPACE create configmap $configmap_name
+  oc -n $SERVING_NAMESPACE annotate configmap $configmap_name service.alpha.openshift.io/inject-cabundle="true"
+  wait_until_configmap_contains $SERVING_NAMESPACE $configmap_name $cert_name
+  oc -n $SERVING_NAMESPACE set volume deployment/controller --add --name=service-ca --configmap-name=$configmap_name --mount-path=$mount_path
+  oc -n $SERVING_NAMESPACE set env deployment/controller SSL_CERT_FILE=$mount_path/$cert_name
 }
 
 function create_test_resources_openshift() {
@@ -161,20 +261,23 @@ function run_e2e_tests(){
   header "Running tests"
   options=""
   (( EMIT_METRICS )) && options="-emitmetrics"
+  failed=0
 
   report_go_test \
     -v -tags=e2e -count=1 -timeout=35m -short \
     ./test/e2e \
     --kubeconfig $KUBECONFIG \
     --dockerrepo ${INTERNAL_REGISTRY}/${SERVING_NAMESPACE} \
-    ${options} || return 1
+    ${options} || failed=1
 
   report_go_test \
     -v -tags=e2e -count=1 -timeout=35m \
     ./test/conformance \
     --kubeconfig $KUBECONFIG \
     --dockerrepo ${INTERNAL_REGISTRY}/${SERVING_NAMESPACE} \
-    ${options} || return 1
+    ${options} || failed=1
+
+  return $failed
 }
 
 function delete_istio_openshift(){
@@ -226,7 +329,11 @@ function tag_built_image() {
   oc tag --insecure=${INSECURE} -n ${SERVING_NAMESPACE} ${OPENSHIFT_REGISTRY}/${OPENSHIFT_BUILD_NAMESPACE}/stable:${remote_name} ${local_name}:latest
 }
 
-enable_admission_webhooks
+if [[ $ENABLE_ADMISSION_WEBHOOKS == "true" ]]; then
+  enable_admission_webhooks
+fi
+
+scale_up_workers
 
 create_test_namespace
 
