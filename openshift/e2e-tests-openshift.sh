@@ -12,8 +12,7 @@ readonly USER=$KUBE_SSH_USER #satisfy e2e_flags.go#initializeFlags()
 readonly OPENSHIFT_REGISTRY="${OPENSHIFT_REGISTRY:-"registry.svc.ci.openshift.org"}"
 readonly SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-"$HOME/.ssh/google_compute_engine"}"
 readonly INSECURE="${INSECURE:-"false"}"
-readonly ISTIO_YAML=$(find third_party -mindepth 1 -maxdepth 1 -type d -name "istio-*")/istio.yaml
-readonly ISTIO_CRD_YAML=$(find third_party -mindepth 1 -maxdepth 1 -type d -name "istio-*")/istio-crds.yaml
+readonly MAISTRA_VERSION="0.8"
 readonly TEST_NAMESPACE=serving-tests
 readonly SERVING_NAMESPACE=knative-serving
 
@@ -114,29 +113,29 @@ function wait_until_configmap_contains() {
 
 function install_istio(){
   header "Installing Istio"
-  # Grant the necessary privileges to the service accounts Istio will use:
-  oc adm policy add-scc-to-user anyuid -z istio-ingress-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z default -n istio-system
-  oc adm policy add-scc-to-user anyuid -z prometheus -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-egressgateway-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-citadel-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-ingressgateway-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-cleanup-old-ca-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-mixer-post-install-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-mixer-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-pilot-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-sidecar-injector-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z cluster-local-gateway-service-account -n istio-system
-  oc adm policy add-cluster-role-to-user cluster-admin -z istio-galley-service-account -n istio-system
-  
-  # Deploy the latest Istio release
-  oc apply -f $ISTIO_CRD_YAML
-  oc apply -f $ISTIO_YAML
 
-  # Ensure the istio-sidecar-injector pod runs as privileged
-  oc get cm istio-sidecar-injector -n istio-system -o yaml | sed -e 's/securityContext:/securityContext:\\n      privileged: true/' | oc replace -f -
+  # Install the Maistra Operator
+  oc apply -f https://raw.githubusercontent.com/Maistra/openshift-ansible/maistra-${MAISTRA_VERSION}/istio/istio_community_operator_template.yaml
+
+  # Wait until the Operator pod is up and running
+  wait_until_pods_running istio-operator || return 1
+
+  # Deploy Istio
+  cat <<EOF | oc apply -f -
+apiVersion: istio.openshift.com/v1alpha1
+kind: Installation
+metadata:
+  namespace: istio-operator
+  name: istio-installation
+spec:
+  istio:
+    authentication: false
+    community: true
+EOF
+
   # Monitor the Istio components until all the components are up and running
   wait_until_pods_running istio-system || return 1
+
   header "Istio Installed successfully"
 }
 
