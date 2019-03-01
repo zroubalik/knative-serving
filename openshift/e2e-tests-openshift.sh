@@ -111,11 +111,21 @@ function wait_until_configmap_contains() {
   return 1
 }
 
+# Loops until duration (car) is exceeded or command (cdr) returns non-zero
+function timeout() {
+  SECONDS=0; TIMEOUT=$1; shift
+  while eval $*; do
+    sleep 5
+    [[ $SECONDS -gt $TIMEOUT ]] && echo "ERROR: Timed out" && return 1
+  done
+}
+
 function install_istio(){
   header "Installing Istio"
 
   # Install the Maistra Operator
-  oc apply -f https://raw.githubusercontent.com/Maistra/openshift-ansible/maistra-${MAISTRA_VERSION}/istio/istio_community_operator_template.yaml
+  oc create namespace istio-operator
+  oc process -f https://raw.githubusercontent.com/Maistra/openshift-ansible/maistra-${MAISTRA_VERSION}/istio/istio_community_operator_template.yaml | oc create -f -
 
   # Wait until the Operator pod is up and running
   wait_until_pods_running istio-operator || return 1
@@ -133,10 +143,11 @@ spec:
     community: true
 EOF
 
-  # Monitor the Istio components until all the components are up and running
+  # Wait until at least the istio installer job is running
   wait_until_pods_running istio-system || return 1
 
-  header "Istio Installed successfully"
+  timeout 900 'oc get pods -n istio-system && [[ $(oc get pods -n istio-system | grep openshift-ansible-istio-installer | grep -c Completed) -eq 0 ]]' && \
+    header "Istio Installed successfully"
 }
 
 function install_knative(){
@@ -247,10 +258,6 @@ function resolve_resources(){
   done
 }
 
-function enable_docker_schema2(){
-  oc set env -n default dc/docker-registry REGISTRY_MIDDLEWARE_REPOSITORY_OPENSHIFT_ACCEPTSCHEMA2=true
-}
-
 function create_test_namespace(){
   oc new-project $TEST_NAMESPACE
   oc adm policy add-scc-to-user privileged -z default -n $TEST_NAMESPACE
@@ -332,17 +339,19 @@ if [[ $ENABLE_ADMISSION_WEBHOOKS == "true" ]]; then
   enable_admission_webhooks
 fi
 
-scale_up_workers
+scale_up_workers || exit 1
 
-create_test_namespace
+create_test_namespace || exit 1
 
-install_istio
+install_istio || \
+  echo "Istio Installation failed" && \
+  dump_cluster_state && \
+  teardown && \
+  exit 1
 
-enable_docker_schema2
+install_knative || exit 1
 
-install_knative
-
-create_test_resources_openshift
+create_test_resources_openshift || exit 1
 
 failed=0
 
