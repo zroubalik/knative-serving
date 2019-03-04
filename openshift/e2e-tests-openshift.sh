@@ -121,6 +121,21 @@ function timeout() {
   return 0
 }
 
+function patch_istio_for_knative(){
+  local sidecar_config=$(oc get configmap -n istio-system istio-sidecar-injector -o yaml)
+  if [[ -z "${sidecar_config}" ]]; then
+    return 1
+  fi
+  echo "${sidecar_config}" | grep lifecycle
+  if [[ $? -eq 1 ]]; then
+    echo "Patching Istio's preStop hook for graceful shutdown"
+    echo "${sidecar_config}" | sed 's/\(name: istio-proxy\)/\1\\n    lifecycle:\\n      preStop:\\n        exec:\\n          command: [\\"sh\\", \\"-c\\", \\"sleep 20; while [ $(netstat -plunt | grep tcp | grep -v envoy | wc -l | xargs) -ne 0 ]; do sleep 1; done\\"]/' | oc replace -f -
+    oc delete pod -n istio-system -l istio=sidecar-injector
+    wait_until_pods_running istio-system || return 1
+  fi
+  return 0
+}
+
 function install_istio(){
   header "Installing Istio"
 
@@ -147,8 +162,22 @@ EOF
   # Wait until at least the istio installer job is running
   wait_until_pods_running istio-system || return 1
 
-  timeout 900 'oc get pods -n istio-system && [[ $(oc get pods -n istio-system | grep openshift-ansible-istio-installer | grep -c Completed) -eq 0 ]]' && \
-    header "Istio Installed successfully"
+  timeout 900 'oc get pods -n istio-system && [[ $(oc get pods -n istio-system | grep openshift-ansible-istio-installer | grep -c Completed) -eq 0 ]]' || return 1
+
+  # Scale down unused services deployed by the istio operator. The
+  # jaeger pods will fail anyway due to the elasticsearch pod failing
+  # due to "max virtual memory areas vm.max_map_count [65530] is too
+  # low, increase to at least [262144]" which could be mitigated on
+  # minishift with:
+  #  minishift ssh "echo 'echo vm.max_map_count = 262144 >/etc/sysctl.d/99-elasticsearch.conf' | sudo sh"
+  oc scale -n istio-system --replicas=0 deployment/grafana
+  oc scale -n istio-system --replicas=0 deployment/jaeger-collector
+  oc scale -n istio-system --replicas=0 deployment/jaeger-query
+  oc scale -n istio-system --replicas=0 statefulset/elasticsearch
+
+  patch_istio_for_knative || return 1
+  
+  header "Istio Installed successfully"
 }
 
 function install_knative(){
