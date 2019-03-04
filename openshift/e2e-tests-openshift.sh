@@ -118,6 +118,7 @@ function timeout() {
     sleep 5
     [[ $SECONDS -gt $TIMEOUT ]] && echo "ERROR: Timed out" && return 1
   done
+  return 0
 }
 
 function install_istio(){
@@ -343,19 +344,15 @@ scale_up_workers || exit 1
 
 create_test_namespace || exit 1
 
-install_istio || \
-  echo "Istio Installation failed" && \
-  dump_cluster_state && \
-  teardown && \
-  exit 1
-
-install_knative || exit 1
-
-create_test_resources_openshift || exit 1
-
 failed=0
 
-run_e2e_tests || failed=1
+install_istio || failed=1
+
+(( !failed )) && install_knative || failed=1
+
+(( !failed )) && create_test_resources_openshift || failed=1
+
+(( !failed )) && run_e2e_tests || failed=1
 
 (( failed )) && dump_cluster_state
 
