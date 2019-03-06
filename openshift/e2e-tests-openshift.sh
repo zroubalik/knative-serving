@@ -12,8 +12,7 @@ readonly USER=$KUBE_SSH_USER #satisfy e2e_flags.go#initializeFlags()
 readonly OPENSHIFT_REGISTRY="${OPENSHIFT_REGISTRY:-"registry.svc.ci.openshift.org"}"
 readonly SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-"$HOME/.ssh/google_compute_engine"}"
 readonly INSECURE="${INSECURE:-"false"}"
-readonly ISTIO_YAML=$(find third_party -mindepth 1 -maxdepth 1 -type d -name "istio-*")/istio.yaml
-readonly ISTIO_CRD_YAML=$(find third_party -mindepth 1 -maxdepth 1 -type d -name "istio-*")/istio-crds.yaml
+readonly MAISTRA_VERSION="0.6"
 readonly TEST_NAMESPACE=serving-tests
 readonly SERVING_NAMESPACE=knative-serving
 
@@ -112,31 +111,72 @@ function wait_until_configmap_contains() {
   return 1
 }
 
+# Loops until duration (car) is exceeded or command (cdr) returns non-zero
+function timeout() {
+  SECONDS=0; TIMEOUT=$1; shift
+  while eval $*; do
+    sleep 5
+    [[ $SECONDS -gt $TIMEOUT ]] && echo "ERROR: Timed out" && return 1
+  done
+  return 0
+}
+
+function patch_istio_for_knative(){
+  local sidecar_config=$(oc get configmap -n istio-system istio-sidecar-injector -o yaml)
+  if [[ -z "${sidecar_config}" ]]; then
+    return 1
+  fi
+  echo "${sidecar_config}" | grep lifecycle
+  if [[ $? -eq 1 ]]; then
+    echo "Patching Istio's preStop hook for graceful shutdown"
+    echo "${sidecar_config}" | sed 's/\(name: istio-proxy\)/\1\\n    lifecycle:\\n      preStop:\\n        exec:\\n          command: [\\"sh\\", \\"-c\\", \\"sleep 20; while [ $(netstat -plunt | grep tcp | grep -v envoy | wc -l | xargs) -ne 0 ]; do sleep 1; done\\"]/' | oc replace -f -
+    oc delete pod -n istio-system -l istio=sidecar-injector
+    wait_until_pods_running istio-system || return 1
+  fi
+  return 0
+}
+
 function install_istio(){
   header "Installing Istio"
-  # Grant the necessary privileges to the service accounts Istio will use:
-  oc adm policy add-scc-to-user anyuid -z istio-ingress-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z default -n istio-system
-  oc adm policy add-scc-to-user anyuid -z prometheus -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-egressgateway-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-citadel-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-ingressgateway-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-cleanup-old-ca-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-mixer-post-install-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-mixer-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-pilot-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z istio-sidecar-injector-service-account -n istio-system
-  oc adm policy add-scc-to-user anyuid -z cluster-local-gateway-service-account -n istio-system
-  oc adm policy add-cluster-role-to-user cluster-admin -z istio-galley-service-account -n istio-system
-  
-  # Deploy the latest Istio release
-  oc apply -f $ISTIO_CRD_YAML
-  oc apply -f $ISTIO_YAML
 
-  # Ensure the istio-sidecar-injector pod runs as privileged
-  oc get cm istio-sidecar-injector -n istio-system -o yaml | sed -e 's/securityContext:/securityContext:\\n      privileged: true/' | oc replace -f -
-  # Monitor the Istio components until all the components are up and running
+  # Install the Maistra Operator
+  oc create namespace istio-operator
+  oc process -f https://raw.githubusercontent.com/Maistra/openshift-ansible/maistra-${MAISTRA_VERSION}/istio/istio_community_operator_template.yaml | oc create -f -
+
+  # Wait until the Operator pod is up and running
+  wait_until_pods_running istio-operator || return 1
+
+  # Deploy Istio
+  cat <<EOF | oc apply -f -
+apiVersion: istio.openshift.com/v1alpha1
+kind: Installation
+metadata:
+  namespace: istio-operator
+  name: istio-installation
+spec:
+  istio:
+    authentication: false
+    community: true
+EOF
+
+  # Wait until at least the istio installer job is running
   wait_until_pods_running istio-system || return 1
+
+  timeout 900 'oc get pods -n istio-system && [[ $(oc get pods -n istio-system | grep openshift-ansible-istio-installer | grep -c Completed) -eq 0 ]]' || return 1
+
+  # Scale down unused services deployed by the istio operator. The
+  # jaeger pods will fail anyway due to the elasticsearch pod failing
+  # due to "max virtual memory areas vm.max_map_count [65530] is too
+  # low, increase to at least [262144]" which could be mitigated on
+  # minishift with:
+  #  minishift ssh "echo 'echo vm.max_map_count = 262144 >/etc/sysctl.d/99-elasticsearch.conf' | sudo sh"
+  oc scale -n istio-system --replicas=0 deployment/grafana
+  oc scale -n istio-system --replicas=0 deployment/jaeger-collector
+  oc scale -n istio-system --replicas=0 deployment/jaeger-query
+  oc scale -n istio-system --replicas=0 statefulset/elasticsearch
+
+  patch_istio_for_knative || return 1
+  
   header "Istio Installed successfully"
 }
 
@@ -248,10 +288,6 @@ function resolve_resources(){
   done
 }
 
-function enable_docker_schema2(){
-  oc set env -n default dc/docker-registry REGISTRY_MIDDLEWARE_REPOSITORY_OPENSHIFT_ACCEPTSCHEMA2=true
-}
-
 function create_test_namespace(){
   oc new-project $TEST_NAMESPACE
   oc adm policy add-scc-to-user privileged -z default -n $TEST_NAMESPACE
@@ -333,21 +369,19 @@ if [[ $ENABLE_ADMISSION_WEBHOOKS == "true" ]]; then
   enable_admission_webhooks
 fi
 
-scale_up_workers
+scale_up_workers || exit 1
 
-create_test_namespace
-
-install_istio
-
-enable_docker_schema2
-
-install_knative
-
-create_test_resources_openshift
+create_test_namespace || exit 1
 
 failed=0
 
-run_e2e_tests || failed=1
+install_istio || failed=1
+
+(( !failed )) && install_knative || failed=1
+
+(( !failed )) && create_test_resources_openshift || failed=1
+
+(( !failed )) && run_e2e_tests || failed=1
 
 (( failed )) && dump_cluster_state
 
