@@ -8,7 +8,7 @@ As far as branching goes, we have two use-cases:
 2. Having a branch that follow upstream's HEAD and serves as a vehicle for continuous integration.
 
 A prerequisite for both scripts is that your local clone of the repository has a remote "upstream"
-that points to the upstream repository.
+that points to the upstream repository and a remote "openshift" that points to the openshift fork.
 
 ### Creating a branch based off an upstream release tag
 
