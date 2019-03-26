@@ -4,11 +4,16 @@
 
 target=$1
 
+# Checkout the target branch.
 git checkout "$target"
+
+# Update upstream's master and rebase on top of it.
 git fetch upstream master
 git rebase upstream/master
 
-git checkout master openshift OWNERS_ALIASES OWNERS Makefile
+# Update openshift's master and take all needed files from there.
+git fetch openshift master
+git checkout openshift/master openshift OWNERS_ALIASES OWNERS Makefile
 make generate-dockerfiles
 git add openshift OWNERS_ALIASES OWNERS Makefile
 git commit -m "Update openshift specific files."

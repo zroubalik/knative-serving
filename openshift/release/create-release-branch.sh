@@ -5,10 +5,13 @@
 release=$1
 target=$2
 
+# Fetch the latest tags and checkout a new branch from the wanted tag.
 git fetch upstream --tags
 git checkout -b "$target" "$release"
 
-git checkout master openshift OWNERS_ALIASES OWNERS Makefile
+# Update openshift's master and take all needed files from there.
+git fetch openshift master
+git checkout openshift/master -- openshift OWNERS_ALIASES OWNERS Makefile
 make generate-dockerfiles
 git add openshift OWNERS_ALIASES OWNERS Makefile
 git commit -m "Add openshift specific files."
