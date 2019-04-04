@@ -8,6 +8,8 @@ function resolve_resources(){
 
   [[ -n $image_tag ]] && image_tag=":$image_tag"
 
+  echo "Writing resolved yaml to $resolved_file_name"
+
   > $resolved_file_name
 
   for yaml in "$dir"/*.yaml; do
@@ -25,5 +27,3 @@ function resolve_resources(){
         "$yaml" >> $resolved_file_name
   done
 }
-
-resolve_resources $@

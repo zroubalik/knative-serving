@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 source $(dirname $0)/../test/e2e-common.sh
+source $(dirname $0)/release/resolve.sh
 
 set -x
 
@@ -238,7 +239,16 @@ function create_serving_and_build(){
   oc apply -f third_party/config/build/release.yaml
   oc apply -f third_party/config/pipeline/release.yaml
   
-  $(dirname $0)/release/resolve.sh config/ serving-resolved.yaml $TARGET_IMAGE_PREFIX
+  resolve_resources config/ serving-resolved.yaml $TARGET_IMAGE_PREFIX
+
+  tag_core_images serving-resolved.yaml
+
+  # Remove nodePort spec as the ports do not fall into the range allowed by OpenShift
+  sed '/nodePort/d' serving-resolved.yaml | oc apply -f -
+}
+
+function tag_core_images(){
+  local resolved_file_name=$1
 
   oc policy add-role-to-group system:image-puller system:serviceaccounts:${SERVING_NAMESPACE} --namespace=${OPENSHIFT_BUILD_NAMESPACE}
 
@@ -247,9 +257,6 @@ function create_serving_and_build(){
   for name in $IMAGE_NAMES; do
     tag_built_image ${name} ${name}
   done
-
-  # Remove nodePort spec as the ports do not fall into the range allowed by OpenShift
-  sed '/nodePort/d' serving-resolved.yaml | oc apply -f -
 }
 
 function enable_knative_interaction_with_registry() {
@@ -267,8 +274,10 @@ function enable_knative_interaction_with_registry() {
 function create_test_resources_openshift() {
   echo ">> Creating test resources for OpenShift (test/config/)"
 
-  $(dirname $0)/release/resolve.sh test/config/ tests-resolved.yaml $TARGET_IMAGE_PREFIX
-  
+  resolve_resources test/config/ tests-resolved.yaml $TARGET_IMAGE_PREFIX
+
+  tag_core_images tests-resolved.yaml
+
   oc apply -f tests-resolved.yaml
 
   echo ">> Ensuring pods in test namespaces can access test images"

@@ -25,12 +25,12 @@ generate-dockerfiles:
 	./openshift/ci-operator/generate-dockerfiles.sh openshift/ci-operator/knative-test-images $(TEST_IMAGES)
 .PHONY: generate-dockerfiles
 
-# Generates a release.yaml for a specific branch.
-generate-release:
-	./openshift/ci-operator/generate-release.sh $(BRANCH) > release.yaml
-.PHONY: generate-release
+# Generates a ci-operator configuration specific branch.
+generate-ci-config:
+	./openshift/ci-operator/generate-ci-config.sh $(BRANCH) > ci-operator-config.yaml
+.PHONY: generate-ci-config
 
 # Generate an aggregated knative yaml file with replaced image references
-resolve-knative:
-	./openshift/release/resolve.sh config/ openshift/knative-serving-$(RELEASE).yaml "quay.io/openshift-knative/knative-serving-" $(RELEASE)
-.PHONY: resolve-knative
+generate-release:
+	./openshift/release/generate-release.sh $(RELEASE)
+.PHONY: generate-release
