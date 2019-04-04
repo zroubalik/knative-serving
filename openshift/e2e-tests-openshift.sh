@@ -15,6 +15,7 @@ readonly INSECURE="${INSECURE:-"false"}"
 readonly MAISTRA_VERSION="0.6"
 readonly TEST_NAMESPACE=serving-tests
 readonly SERVING_NAMESPACE=knative-serving
+readonly TARGET_IMAGE_PREFIX="$INTERNAL_REGISTRY/$SERVING_NAMESPACE/knative-serving-"
 
 env
 
@@ -237,9 +238,16 @@ function create_serving_and_build(){
   oc apply -f third_party/config/build/release.yaml
   oc apply -f third_party/config/pipeline/release.yaml
   
-  > serving-resolved.yaml
-  resolve_resources config/ $SERVING_NAMESPACE serving-resolved.yaml
-  
+  $(dirname $0)/release/resolve.sh config/ serving-resolved.yaml $TARGET_IMAGE_PREFIX
+
+  oc policy add-role-to-group system:image-puller system:serviceaccounts:${SERVING_NAMESPACE} --namespace=${OPENSHIFT_BUILD_NAMESPACE}
+
+  echo ">> Creating imagestream tags for images referenced in yaml files"
+  IMAGE_NAMES=$(cat $resolved_file_name | grep -i "image:" | grep "$INTERNAL_REGISTRY" | awk '{print $2}' | awk -F '/' '{print $3}')
+  for name in $IMAGE_NAMES; do
+    tag_built_image ${name} ${name}
+  done
+
   # Remove nodePort spec as the ports do not fall into the range allowed by OpenShift
   sed '/nodePort/d' serving-resolved.yaml | oc apply -f -
 }
@@ -259,8 +267,7 @@ function enable_knative_interaction_with_registry() {
 function create_test_resources_openshift() {
   echo ">> Creating test resources for OpenShift (test/config/)"
 
-  > tests-resolved.yaml
-  resolve_resources test/config/ $TEST_NAMESPACE tests-resolved.yaml
+  $(dirname $0)/release/resolve.sh test/config/ tests-resolved.yaml $TARGET_IMAGE_PREFIX
   
   oc apply -f tests-resolved.yaml
 
@@ -270,26 +277,6 @@ function create_test_resources_openshift() {
 
   echo ">> Creating imagestream tags for all test images"
   tag_test_images test/test_images
-}
-
-function resolve_resources(){
-  local dir=$1
-  local resolved_file_name=$3
-  for yaml in $(find $dir -name "*.yaml" -mindepth 1 -maxdepth 1); do
-    echo "---" >> $resolved_file_name
-    #first prefix all test images with "test-", then replace all image names with proper repository
-    sed -e 's/\(.* image: \)\(github.com\)\(.*\/\)\(test\/\)\(.*\)/\1\2 \3\4test-\5/' $yaml | \
-    sed -e 's/\(.* image: \)\(github.com\)\(.*\/\)\(.*\)/\1 '"$INTERNAL_REGISTRY"'\/'"$SERVING_NAMESPACE"'\/knative-serving-\4/' \
-        -e 's/\(.* queueSidecarImage: \)\(github.com\)\(.*\/\)\(.*\)/\1 '"$INTERNAL_REGISTRY"'\/'"$SERVING_NAMESPACE"'\/knative-serving-\4/' >> $resolved_file_name
-  done
-
-  oc policy add-role-to-group system:image-puller system:serviceaccounts:${SERVING_NAMESPACE} --namespace=${OPENSHIFT_BUILD_NAMESPACE}
-
-  echo ">> Creating imagestream tags for images referenced in yaml files"
-  IMAGE_NAMES=$(cat $resolved_file_name | grep -i "image:" | grep "$INTERNAL_REGISTRY" | awk '{print $2}' | awk -F '/' '{print $3}')
-  for name in $IMAGE_NAMES; do
-    tag_built_image ${name} ${name}
-  done
 }
 
 function create_test_namespace(){

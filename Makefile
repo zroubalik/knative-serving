@@ -29,3 +29,8 @@ generate-dockerfiles:
 generate-release:
 	./openshift/ci-operator/generate-release.sh $(BRANCH) > release.yaml
 .PHONY: generate-release
+
+# Generate an aggregated knative yaml file with replaced image references
+resolve-knative:
+	./openshift/release/resolve.sh config/ openshift/knative-serving-$(RELEASE).yaml "quay.io/openshift-knative/knative-serving-" $(RELEASE)
+.PHONY: resolve-knative
