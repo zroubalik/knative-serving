@@ -25,7 +25,7 @@ generate-dockerfiles:
 	./openshift/ci-operator/generate-dockerfiles.sh openshift/ci-operator/knative-test-images $(TEST_IMAGES)
 .PHONY: generate-dockerfiles
 
-# Generates a ci-operator configuration specific branch.
+# Generates a ci-operator configuration for a specific branch.
 generate-ci-config:
 	./openshift/ci-operator/generate-ci-config.sh $(BRANCH) > ci-operator-config.yaml
 .PHONY: generate-ci-config
