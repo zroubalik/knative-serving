@@ -260,7 +260,6 @@ data:
           Knative Serving builds on Kubernetes and Istio to support deploying and serving of serverless applications and functions
         version: 0.4.1
         maturity: alpha
-        replaces: knative-serving.v0.3.0
 
         installModes:
         - supported: true
