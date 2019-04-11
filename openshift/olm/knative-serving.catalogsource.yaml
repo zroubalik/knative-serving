@@ -508,6 +508,22 @@ data:
                 - config.openshift.io
                 resources:
                 - networks
+                - ingresses
+                verbs:
+                - list
+                - watch
+              - apiGroups:
+                - ""
+                resources:
+                - nodes
+                verbs:
+                - list
+                - watch
+
+              - apiGroups:
+                - ingresses.config.openshift.io
+                resources:
+                - ingresses
                 verbs:
                 - list
                 - watch
