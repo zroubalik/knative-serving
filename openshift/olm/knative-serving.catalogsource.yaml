@@ -550,7 +550,7 @@ data:
                     serviceAccountName: controller
                     containers:
                       - name: knative-serving-operator
-                        image: docker.io/wtam168/knative-serving-operator:v0.4.1
+                        image: quay.io/openshift-knative/knative-serving-operator:v0.4.1
                         command:
                         - knative-serving-operator
                         args:
