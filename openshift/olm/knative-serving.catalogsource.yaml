@@ -519,7 +519,6 @@ data:
                 verbs:
                 - list
                 - watch
-
               - apiGroups:
                 - ingresses.config.openshift.io
                 resources:
