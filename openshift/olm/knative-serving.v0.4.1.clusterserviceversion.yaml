@@ -256,6 +256,7 @@ spec:
           - config.openshift.io
           resources:
           - networks
+          - ingresses
           verbs:
           - list
           - watch
@@ -266,6 +267,20 @@ spec:
           verbs:
           - list
           - watch
+        - apiGroups:
+          - ingresses.config.openshift.io
+          resources:
+          - ingresses
+          verbs:
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - nodes
+          verbs:
+          - list
+          - watch          
 
       deployments:
       - name: knative-serving-operator
