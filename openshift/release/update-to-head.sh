@@ -12,6 +12,7 @@ git reset --hard upstream/master
 git fetch openshift master
 git checkout openshift/master openshift OWNERS_ALIASES OWNERS Makefile
 make generate-dockerfiles
+make RELEASE=ci generate-release
 git add openshift OWNERS_ALIASES OWNERS Makefile
 git commit -m "Update openshift specific files."
 git push -f openshift release-next
