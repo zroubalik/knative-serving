@@ -3,8 +3,14 @@
 source $(dirname $0)/resolve.sh
 
 release=$1
-
-quay_image_prefix="quay.io/openshift-knative/knative-serving-"
 output_file="openshift/release/knative-serving-${release}.yaml"
 
-resolve_resources config/ $output_file $quay_image_prefix $release
+if [ $release = "ci" ]; then
+    image_prefix="image-registry.openshift-image-registry.svc:5000/knative-serving/knative-serving-"
+    tag=""
+else
+    image_prefix="quay.io/openshift-knative/knative-serving-"
+    tag=$release
+fi
+
+resolve_resources config/ $output_file $image_prefix $tag
