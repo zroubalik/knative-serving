@@ -15,6 +15,7 @@ readonly SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-"$HOME/.ssh/google_compute_engine"}
 readonly INSECURE="${INSECURE:-"false"}"
 readonly MAISTRA_VERSION="0.6"
 readonly TEST_NAMESPACE=serving-tests
+readonly TEST_NAMESPACE_ALT=serving-tests-alt
 readonly SERVING_NAMESPACE=knative-serving
 readonly TARGET_IMAGE_PREFIX="$INTERNAL_REGISTRY/$SERVING_NAMESPACE/knative-serving-"
 
@@ -285,6 +286,7 @@ function create_test_resources_openshift() {
 
   echo ">> Ensuring pods in test namespaces can access test images"
   oc policy add-role-to-group system:image-puller system:serviceaccounts:${TEST_NAMESPACE} --namespace=${SERVING_NAMESPACE}
+  oc policy add-role-to-group system:image-puller system:serviceaccounts:${TEST_NAMESPACE_ALT} --namespace=${SERVING_NAMESPACE}
   oc policy add-role-to-group system:image-puller system:serviceaccounts:knative-testing --namespace=${SERVING_NAMESPACE}
 
   echo ">> Creating imagestream tags for all test images"
@@ -293,7 +295,9 @@ function create_test_resources_openshift() {
 
 function create_test_namespace(){
   oc new-project $TEST_NAMESPACE
+  oc new-project $TEST_NAMESPACE_ALT
   oc adm policy add-scc-to-user privileged -z default -n $TEST_NAMESPACE
+  oc adm policy add-scc-to-user privileged -z default -n $TEST_NAMESPACE_ALT
 }
 
 function run_e2e_tests(){
@@ -338,8 +342,9 @@ function delete_test_resources_openshift() {
 }
 
 function delete_test_namespace(){
-  echo ">> Deleting test namespace $TEST_NAMESPACE"
+  echo ">> Deleting test namespaces"
   oc delete project $TEST_NAMESPACE
+  oc delete project $TEST_NAMESPACE_ALT
 }
 
 function teardown() {
