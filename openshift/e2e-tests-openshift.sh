@@ -11,7 +11,6 @@ readonly INTERNAL_REGISTRY="${INTERNAL_REGISTRY:-"image-registry.openshift-image
 readonly USER=$KUBE_SSH_USER #satisfy e2e_flags.go#initializeFlags()
 readonly OPENSHIFT_REGISTRY="${OPENSHIFT_REGISTRY:-"registry.svc.ci.openshift.org"}"
 readonly INSECURE="${INSECURE:-"false"}"
-readonly MAISTRA_VERSION="0.10"
 readonly TEST_NAMESPACE=serving-tests
 readonly TEST_NAMESPACE_ALT=serving-tests-alt
 readonly SERVING_NAMESPACE=knative-serving
